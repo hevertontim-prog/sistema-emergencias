@@ -11,6 +11,7 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     cpf = Column(String(11), unique=True, nullable=False)
     nome = Column(String(100), nullable=False)
+    push_token = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     emergencias = relationship("Emergencia", back_populates="usuario")

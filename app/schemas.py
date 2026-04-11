@@ -2,6 +2,24 @@ from pydantic import BaseModel
 from datetime import datetime
 
 
+# --- Usuario ---
+class UsuarioCreate(BaseModel):
+    cpf: str
+    nome: str
+
+
+class UsuarioResponse(BaseModel):
+    id: int
+    cpf: str
+    nome: str
+
+    model_config = {"from_attributes": True}
+
+
+class PushTokenUpdate(BaseModel):
+    push_token: str
+
+
 # --- Emergencia ---
 class EmergenciaCreate(BaseModel):
     lat: float
@@ -40,6 +58,8 @@ class AgenteFrota(BaseModel):
     tipo_recurso: str
     status: str
     viaturas: list[ViaturaFrota]
+    despacho_id: int | None = None
+    emergencia_id: int | None = None
 
     model_config = {"from_attributes": True}
 
