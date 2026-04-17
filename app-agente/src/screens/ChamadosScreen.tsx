@@ -78,6 +78,7 @@ export default function ChamadosScreen({ route, navigation }: Props) {
   function handleChamado(item: Chamado) {
     navigation.navigate('Atendimento', {
       despachoId: item.despachoId,
+      emergenciaId: item.emergenciaId,
       agenteId,
       lat: item.lat,
       lon: item.lon,

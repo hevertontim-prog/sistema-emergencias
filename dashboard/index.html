@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SalvAI · Painel do Gestor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { background: #0d0d0d; color: #fff; height: 100vh; overflow: hidden; }
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+
+  header {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border-bottom: 1px solid #2a2a3e;
+    padding: 12px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icon { font-size: 28px; }
+  .logo h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+  .logo span { color: #a0a0b0; font-size: 12px; }
+  .stats { display: flex; gap: 12px; }
+  .stat {
+    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 10px;
+    padding: 8px 16px; min-width: 110px; text-align: center;
+  }
+  .stat-num { font-size: 22px; font-weight: 700; }
+  .stat-label { font-size: 10px; color: #a0a0b0; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .stat.danger .stat-num { color: #ef4444; }
+  .stat.warning .stat-num { color: #f59e0b; }
+  .stat.info .stat-num { color: #3b82f6; }
+  .stat.success .stat-num { color: #10b981; }
+
+  main {
+    display: grid;
+    grid-template-columns: 320px 1fr 380px;
+    gap: 12px; padding: 12px;
+    height: calc(100vh - 64px);
+    overflow: hidden;
+  }
+  .panel {
+    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .panel-header {
+    padding: 14px 16px; border-bottom: 1px solid #2a2a3e;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #a0a0b0; }
+  .panel-count { background: #252540; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 8px; }
+
+  /* Frota items */
+  .agente {
+    background: #16213e; border-radius: 10px; padding: 12px;
+    margin-bottom: 8px; border-left: 4px solid #3b82f6;
+    transition: transform 0.1s;
+  }
+  .agente:hover { transform: translateX(2px); cursor: pointer; }
+  .agente.disponivel { border-left-color: #10b981; }
+  .agente.em_atendimento { border-left-color: #f59e0b; }
+  .agente-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .agente-icon { font-size: 22px; }
+  .agente-nome { font-size: 13px; font-weight: 600; flex: 1; }
+  .agente-status {
+    font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .agente-status.disponivel { background: #10b98133; color: #10b981; }
+  .agente-status.em_atendimento { background: #f59e0b33; color: #f59e0b; }
+  .agente-info { font-size: 11px; color: #a0a0b0; line-height: 1.5; }
+
+  /* Mapa */
+  #map { height: 100%; width: 100%; background: #16213e; }
+
+  /* Chamados */
+  .chamado {
+    background: #16213e; border-radius: 10px; padding: 12px;
+    margin-bottom: 8px; border-left: 4px solid #ef4444;
+  }
+  .chamado.concluida, .chamado.finalizado { border-left-color: #10b981; opacity: 0.6; }
+  .chamado.em_atendimento { border-left-color: #8b5cf6; }
+  .chamado.aberta { border-left-color: #f59e0b; }
+  .chamado-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .chamado-id { font-size: 13px; font-weight: 700; }
+  .chamado-tipo {
+    font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .tipo-policia { background: #3b82f633; color: #3b82f6; }
+  .tipo-medica, .tipo-ambulancia { background: #ef444433; color: #ef4444; }
+  .tipo-bombeiro { background: #f59e0b33; color: #f59e0b; }
+  .chamado-info { font-size: 11px; color: #a0a0b0; line-height: 1.6; margin-top: 4px; }
+  .chamado-info strong { color: #fff; font-weight: 600; }
+  .chamado-status-badge {
+    display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 8px;
+    border-radius: 6px; margin-top: 6px; text-transform: uppercase;
+  }
+  .badge-aberta { background: #f59e0b33; color: #f59e0b; }
+  .badge-em_atendimento { background: #8b5cf633; color: #a78bfa; }
+  .badge-finalizado, .badge-concluida { background: #10b98133; color: #10b981; }
+
+  .empty { text-align: center; padding: 32px 16px; color: #a0a0b0; font-size: 13px; }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
+
+  .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .leaflet-popup-content-wrapper { background: #1a1a2e; color: #fff; border-radius: 8px; }
+  .leaflet-popup-tip { background: #1a1a2e; }
+  .leaflet-popup-content { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">
+      <span class="logo-icon">🚨</span>
+      <div>
+        <h1>SalvAI · Painel do Gestor</h1>
+        <span id="last-update">Aguardando dados...</span>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat danger">
+        <div class="stat-num" id="stat-ativas">0</div>
+        <div class="stat-label">Ativas</div>
+      </div>
+      <div class="stat info">
+        <div class="stat-num" id="stat-atendimento">0</div>
+        <div class="stat-label">Em Atendimento</div>
+      </div>
+      <div class="stat success">
+        <div class="stat-num" id="stat-finalizadas">0</div>
+        <div class="stat-label">Finalizadas</div>
+      </div>
+      <div class="stat warning">
+        <div class="stat-num" id="stat-disponiveis">0</div>
+        <div class="stat-label">Disp. / Total</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Frota -->
+    <section class="panel">
+      <div class="panel-header">
+        <span class="panel-title">🚓 Controle da Frota</span>
+        <span class="panel-count" id="frota-count">0</span>
+      </div>
+      <div class="panel-body" id="frota-list"></div>
+    </section>
+
+    <!-- Mapa -->
+    <section class="panel">
+      <div class="panel-header">
+        <span class="panel-title">🗺️ Operação em Tempo Real</span>
+        <span class="panel-count pulse">● AO VIVO</span>
+      </div>
+      <div id="map"></div>
+    </section>
+
+    <!-- Chamados -->
+    <section class="panel">
+      <div class="panel-header">
+        <span class="panel-title">📋 Resumo de Chamados</span>
+        <span class="panel-count" id="chamados-count">0</span>
+      </div>
+      <div class="panel-body" id="chamados-list"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const API_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://localhost:8006'
+  : ''; // mesmo origin em produção
+
+const TIPO_ICON = { policia: '🚔', ambulancia: '🚑', bombeiro: '🚒' };
+const EMERG_ICON = { policia: '🚨', medica: '🏥', ambulancia: '🏥', bombeiro: '🔥' };
+
+const map = L.map('map', { zoomControl: true }).setView([-15.7939, -47.8828], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap',
+}).addTo(map);
+
+const agenteMarkers = {}; // id_agente -> marker
+const emergMarkers = {};  // id_emergencia -> marker
+
+function makeIcon(emoji, color) {
+  return L.divIcon({
+    html: `<div style="font-size:28px;filter:drop-shadow(0 0 6px ${color})">${emoji}</div>`,
+    iconSize: [36, 36], iconAnchor: [18, 18], className: '',
+  });
+}
+
+function statusLabel(s) {
+  return ({
+    aberta: 'ABERTA', despachada: 'DESPACHADA',
+    em_atendimento: 'EM ATENDIMENTO', no_local: 'NO LOCAL',
+    concluida: 'CONCLUÍDA', finalizada: 'FINALIZADA',
+    disponivel: 'DISPONÍVEL',
+  })[s] || s.toUpperCase();
+}
+
+function fmtHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function fetchJSON(path) {
+  const r = await fetch(API_URL + path);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    const [frota, emergencias] = await Promise.all([
+      fetchJSON('/frota'),
+      fetchJSON('/emergencias?limit=30'),
+    ]);
+
+    renderFrota(frota);
+    renderEmergencias(emergencias);
+    renderMapa(frota, emergencias);
+    renderStats(frota, emergencias);
+
+    document.getElementById('last-update').textContent =
+      'Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
+  } catch (e) {
+    document.getElementById('last-update').textContent = '⚠️ Erro ao conectar ao backend';
+  }
+}
+
+function renderFrota(frota) {
+  const el = document.getElementById('frota-list');
+  document.getElementById('frota-count').textContent = frota.length;
+  if (!frota.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">🚓</div>Nenhum agente</div>'; return; }
+  el.innerHTML = frota.map(a => {
+    const icon = TIPO_ICON[a.tipo_recurso] || '🚓';
+    const placa = a.viaturas && a.viaturas[0] ? a.viaturas[0].placa : '—';
+    return `
+      <div class="agente ${a.status}">
+        <div class="agente-header">
+          <span class="agente-icon">${icon}</span>
+          <span class="agente-nome">${a.nome}</span>
+          <span class="agente-status ${a.status}">${statusLabel(a.status)}</span>
+        </div>
+        <div class="agente-info">
+          Mat. ${a.matricula} · ${placa}
+          ${a.emergencia_id ? `<br>📞 Atendendo #${a.emergencia_id}` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderEmergencias(ems) {
+  const el = document.getElementById('chamados-list');
+  document.getElementById('chamados-count').textContent = ems.length;
+  if (!ems.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>Sem chamados</div>'; return; }
+  el.innerHTML = ems.map(e => {
+    const tipoClass = `tipo-${e.tipo}`;
+    const stKey = e.status || 'aberta';
+    return `
+      <div class="chamado ${stKey}">
+        <div class="chamado-header">
+          <span class="chamado-id">#${e.id} · ${fmtHora(e.created_at)}</span>
+          <span class="chamado-tipo ${tipoClass}">${e.tipo}</span>
+        </div>
+        <div class="chamado-info">
+          <strong>${e.usuario_nome || 'Cidadão'}</strong>
+          ${e.agente_nome ? `<br>🚓 ${e.agente_nome}` : '<br>⏳ Aguardando despacho'}
+          <br>📍 ${e.lat.toFixed(4)}, ${e.lon.toFixed(4)}
+        </div>
+        <span class="chamado-status-badge badge-${stKey}">${statusLabel(stKey)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderStats(frota, ems) {
+  const ativas = ems.filter(e => e.status === 'aberta' || e.status === 'em_atendimento').length;
+  const atend = ems.filter(e => e.status === 'em_atendimento').length;
+  const fin = ems.filter(e => e.status === 'concluida' || e.status === 'finalizada').length;
+  const disp = frota.filter(a => a.status === 'disponivel').length;
+  document.getElementById('stat-ativas').textContent = ativas;
+  document.getElementById('stat-atendimento').textContent = atend;
+  document.getElementById('stat-finalizadas').textContent = fin;
+  document.getElementById('stat-disponiveis').textContent = `${disp}/${frota.length}`;
+}
+
+function renderMapa(frota, ems) {
+  // Agentes
+  const idsAtivos = new Set();
+  frota.forEach(a => {
+    if (a.latitude == null || a.longitude == null) return;
+    idsAtivos.add(a.id);
+    const icon = TIPO_ICON[a.tipo_recurso] || '🚓';
+    const color = a.status === 'em_atendimento' ? '#f59e0b' : '#10b981';
+    const ll = [a.latitude, a.longitude];
+    const popup = `<b>${a.nome}</b><br>${statusLabel(a.status)}<br>${a.viaturas[0]?.placa || ''}`;
+    if (agenteMarkers[a.id]) {
+      agenteMarkers[a.id].setLatLng(ll).setIcon(makeIcon(icon, color));
+      agenteMarkers[a.id].setPopupContent(popup);
+    } else {
+      agenteMarkers[a.id] = L.marker(ll, { icon: makeIcon(icon, color) }).addTo(map).bindPopup(popup);
+    }
+  });
+  // Remove agentes antigos
+  Object.keys(agenteMarkers).forEach(id => {
+    if (!idsAtivos.has(parseInt(id))) {
+      map.removeLayer(agenteMarkers[id]);
+      delete agenteMarkers[id];
+    }
+  });
+
+  // Emergências ativas
+  const emIdsAtivos = new Set();
+  ems.filter(e => e.status === 'aberta' || e.status === 'em_atendimento').forEach(e => {
+    emIdsAtivos.add(e.id);
+    const icon = EMERG_ICON[e.tipo] || '🚨';
+    const ll = [e.lat, e.lon];
+    const popup = `<b>Ocorrência #${e.id}</b><br>${e.tipo} · ${statusLabel(e.status)}<br>${e.usuario_nome || ''}`;
+    if (emergMarkers[e.id]) {
+      emergMarkers[e.id].setLatLng(ll);
+      emergMarkers[e.id].setPopupContent(popup);
+    } else {
+      emergMarkers[e.id] = L.marker(ll, { icon: makeIcon(icon, '#ef4444') }).addTo(map).bindPopup(popup);
+    }
+  });
+  Object.keys(emergMarkers).forEach(id => {
+    if (!emIdsAtivos.has(parseInt(id))) {
+      map.removeLayer(emergMarkers[id]);
+      delete emergMarkers[id];
+    }
+  });
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

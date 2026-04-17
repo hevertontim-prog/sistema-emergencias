@@ -1,8 +1,11 @@
 import json
 import os
 import httpx
+import threading
+import time
 from math import radians, sin, cos, sqrt, atan2
 from pathlib import Path
+from typing import Optional, Tuple
 
 import anthropic
 from dotenv import load_dotenv
@@ -10,6 +13,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app.database import engine, get_db, Base
@@ -36,6 +40,32 @@ app.add_middleware(
 )
 
 DESPACHO_STATUS_VALIDOS = {"a_caminho", "no_local", "finalizado"}
+
+# Registra início e duração das simulações por despacho_id
+_sim_info: dict = {}
+
+def _simular_movimento(despacho_id: int, agente_id: int,
+                        lat0: float, lon0: float,
+                        lat1: float, lon1: float,
+                        duracao: int = 120):
+    """Thread: interpola GPS do agente de (lat0,lon0) até (lat1,lon1) em `duracao` segundos."""
+    from app.database import SessionLocal
+    steps = duracao // 3
+    for i in range(1, steps + 1):
+        if _sim_info.get(despacho_id, {}).get("stop"):
+            break
+        t = i / steps
+        lat = lat0 + (lat1 - lat0) * t
+        lon = lon0 + (lon1 - lon0) * t
+        db = SessionLocal()
+        try:
+            pos = PosicaoGPS(id_agente=agente_id, lat=lat, lon=lon)
+            db.add(pos)
+            db.commit()
+        finally:
+            db.close()
+        time.sleep(3)
+    _sim_info.pop(despacho_id, None)
 
 
 # ──────────────────────────── helpers ────────────────────────────
@@ -123,6 +153,58 @@ def buscar_emergencia(emergencia_id: int, db: Session = Depends(get_db)):
     return emergencia
 
 
+# ──────────────────────── GET /emergencia/{id}/acompanhamento ─────
+
+from app.schemas import AcompanhamentoResponse
+
+@app.get("/emergencia/{emergencia_id}/acompanhamento", response_model=AcompanhamentoResponse)
+def acompanhamento_emergencia(emergencia_id: int, db: Session = Depends(get_db)):
+    emergencia = db.query(Emergencia).filter(Emergencia.id == emergencia_id).first()
+    if not emergencia:
+        raise HTTPException(status_code=404, detail="Emergencia nao encontrada")
+
+    despacho = (
+        db.query(Despacho)
+        .filter(
+            Despacho.id_emergencia == emergencia_id,
+            Despacho.status.in_(["a_caminho", "no_local"]),
+        )
+        .order_by(Despacho.id.desc())
+        .first()
+    )
+
+    if not despacho:
+        return AcompanhamentoResponse(status=emergencia.status)
+
+    agente = db.query(Agente).filter(Agente.id == despacho.id_agente).first()
+    ultima_pos = (
+        db.query(PosicaoGPS)
+        .filter(PosicaoGPS.id_agente == despacho.id_agente)
+        .order_by(PosicaoGPS.timestamp.desc())
+        .first()
+    )
+
+    eta = None
+    sim = _sim_info.get(despacho.id)
+    if sim:
+        eta = max(0, int(sim["start"] + sim["duracao"] - time.time()))
+
+    dist = None
+    if ultima_pos:
+        dist = round(haversine(ultima_pos.lat, ultima_pos.lon, emergencia.lat, emergencia.lon), 2)
+
+    return AcompanhamentoResponse(
+        status=emergencia.status,
+        despacho_id=despacho.id,
+        agente_nome=agente.nome if agente else None,
+        tipo_recurso=agente.tipo_recurso if agente else None,
+        agente_lat=ultima_pos.lat if ultima_pos else None,
+        agente_lon=ultima_pos.lon if ultima_pos else None,
+        eta_segundos=eta,
+        distancia_km=dist,
+    )
+
+
 # ──────────────────────────── GET /frota ──────────────────────────
 
 @app.get("/frota", response_model=list[AgenteFrota])
@@ -136,6 +218,12 @@ def listar_frota(db: Session = Depends(get_db)):
             .order_by(Despacho.created_at.desc())
             .first()
         )
+        ultima_pos = (
+            db.query(PosicaoGPS)
+            .filter(PosicaoGPS.id_agente == ag.id)
+            .order_by(PosicaoGPS.timestamp.desc())
+            .first()
+        )
         resultado.append(AgenteFrota(
             id=ag.id,
             nome=ag.nome,
@@ -145,20 +233,74 @@ def listar_frota(db: Session = Depends(get_db)):
             viaturas=ag.viaturas,
             despacho_id=despacho_ativo.id if despacho_ativo else None,
             emergencia_id=despacho_ativo.id_emergencia if despacho_ativo else None,
+            latitude=ultima_pos.lat if ultima_pos else None,
+            longitude=ultima_pos.lon if ultima_pos else None,
         ))
     return resultado
 
 
-# ──────────────────────────── helper: executar despacho ──────────
+# ──────────────────────────── GET /emergencias (dashboard) ────────
 
-def _executar_despacho(emergencia: Emergencia, db: Session) -> tuple[Despacho, Agente, float] | None:
-    """Encontra o agente disponivel mais proximo e cria o despacho.
-    Retorna (despacho, agente, distancia_km) ou None se nenhum disponivel."""
-    agentes_disponiveis = (
-        db.query(Agente)
-        .filter(Agente.status == "disponivel")
+@app.get("/emergencias")
+def listar_emergencias(limit: int = 50, db: Session = Depends(get_db)):
+    """Lista emergências para o dashboard do gestor (mais recentes primeiro)."""
+    emergencias = (
+        db.query(Emergencia)
+        .order_by(Emergencia.created_at.desc())
+        .limit(limit)
         .all()
     )
+    out = []
+    for e in emergencias:
+        despacho = (
+            db.query(Despacho)
+            .filter(Despacho.id_emergencia == e.id)
+            .order_by(Despacho.id.desc())
+            .first()
+        )
+        agente_nome = None
+        if despacho:
+            ag = db.query(Agente).filter(Agente.id == despacho.id_agente).first()
+            agente_nome = ag.nome if ag else None
+        usuario = db.query(Usuario).filter(Usuario.id == e.id_usuario).first()
+        out.append({
+            "id": e.id,
+            "tipo": e.tipo,
+            "gravidade": e.gravidade,
+            "status": e.status,
+            "lat": e.lat,
+            "lon": e.lon,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "usuario_nome": usuario.nome if usuario else None,
+            "despacho_id": despacho.id if despacho else None,
+            "despacho_status": despacho.status if despacho else None,
+            "agente_nome": agente_nome,
+        })
+    return out
+
+
+# ──────────────────────────── helper: executar despacho ──────────
+
+TIPO_EMERGENCIA_PARA_RECURSO = {
+    "policia": "policia",
+    "medica": "ambulancia",
+}
+
+def _executar_despacho(emergencia: Emergencia, db: Session) -> Optional[Tuple[Despacho, Agente, float]]:
+    """Encontra o agente disponivel mais proximo e cria o despacho.
+    Retorna (despacho, agente, distancia_km) ou None se nenhum disponivel."""
+    tipo_recurso = TIPO_EMERGENCIA_PARA_RECURSO.get(emergencia.tipo)
+
+    query = db.query(Agente).filter(Agente.status == "disponivel")
+    if tipo_recurso:
+        query = query.filter(Agente.tipo_recurso == tipo_recurso)
+    agentes_disponiveis = query.all()
+
+    # Fallback: qualquer agente disponivel se nao houver do tipo correto
+    if not agentes_disponiveis:
+        agentes_disponiveis = (
+            db.query(Agente).filter(Agente.status == "disponivel").all()
+        )
     if not agentes_disponiveis:
         return None
 
@@ -195,6 +337,26 @@ def _executar_despacho(emergencia: Emergencia, db: Session) -> tuple[Despacho, A
     db.add(despacho)
     db.commit()
     db.refresh(despacho)
+
+    # Inicia simulação de movimento do agente
+    ultima_pos_agente = (
+        db.query(PosicaoGPS)
+        .filter(PosicaoGPS.id_agente == melhor_agente.id)
+        .order_by(PosicaoGPS.timestamp.desc())
+        .first()
+    )
+    if ultima_pos_agente:
+        duracao_sim = 120
+        _sim_info[despacho.id] = {"start": time.time(), "duracao": duracao_sim}
+        t = threading.Thread(
+            target=_simular_movimento,
+            args=(despacho.id, melhor_agente.id,
+                  ultima_pos_agente.lat, ultima_pos_agente.lon,
+                  emergencia.lat, emergencia.lon,
+                  duracao_sim),
+            daemon=True,
+        )
+        t.start()
 
     usuario = db.query(Usuario).filter(Usuario.id == emergencia.id_usuario).first()
     if usuario and usuario.push_token:
@@ -371,3 +533,10 @@ def triagem_ia(dados: TriagemRequest):
             status_code=502,
             detail=f"Erro na API Claude: {e.message}",
         )
+
+
+# ──────────────────────────── Dashboard estático ──────────────────
+
+_dashboard_dir = Path(__file__).resolve().parent.parent / "dashboard"
+if _dashboard_dir.exists():
+    app.mount("/dashboard", StaticFiles(directory=str(_dashboard_dir), html=True), name="dashboard")

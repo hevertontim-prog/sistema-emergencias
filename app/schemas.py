@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional, List
 
 
 # --- Usuario ---
@@ -57,9 +58,11 @@ class AgenteFrota(BaseModel):
     matricula: str
     tipo_recurso: str
     status: str
-    viaturas: list[ViaturaFrota]
-    despacho_id: int | None = None
-    emergencia_id: int | None = None
+    viaturas: List[ViaturaFrota]
+    despacho_id: Optional[int] = None
+    emergencia_id: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -75,8 +78,8 @@ class DespachoResponse(BaseModel):
     id_agente: int
     status: str
     created_at: datetime
-    distancia_km: float | None = None
-    agente_nome: str | None = None
+    distancia_km: Optional[float] = None
+    agente_nome: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -100,6 +103,18 @@ class PosicaoResponse(BaseModel):
     timestamp: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- Acompanhamento ---
+class AcompanhamentoResponse(BaseModel):
+    status: str
+    despacho_id: Optional[int] = None
+    agente_nome: Optional[str] = None
+    tipo_recurso: Optional[str] = None
+    agente_lat: Optional[float] = None
+    agente_lon: Optional[float] = None
+    eta_segundos: Optional[int] = None
+    distancia_km: Optional[float] = None
 
 
 # --- Triagem (IA) ---

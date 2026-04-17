@@ -40,22 +40,28 @@ function MiniMap({ lat, lon }: { lat: number; lon: number }) {
   );
 }
 
+const TIPOS = [
+  { tipo: 'policia', label: 'Emergência\nPolicial', icon: '🚔', color: '#3b82f6', colorDark: '#1d4ed8' },
+  { tipo: 'medica', label: 'Emergência\nMédica', icon: '🚑', color: '#E63946', colorDark: '#B22D38' },
+];
+
 export default function HomeScreen({ route, navigation }: Props) {
   const { cpf, nome, userId } = route.params;
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
   const [lastEmergencia, setLastEmergencia] = useState<{
     id: number;
     status: string;
     lat: number;
     lon: number;
+    tipo: string;
   } | null>(null);
 
   useEffect(() => {
     registrarPushToken(userId);
   }, [userId]);
 
-  async function handleEmergencia() {
-    setLoading(true);
+  async function handleEmergencia(tipo: string) {
+    setLoading(tipo);
     Vibration.vibrate(200);
 
     try {
@@ -64,9 +70,7 @@ export default function HomeScreen({ route, navigation }: Props) {
       if (status === 'granted') {
         try {
           const loc = await Promise.race([
-            Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            }),
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
             new Promise<never>((_, reject) =>
               setTimeout(() => reject(new Error('timeout')), 5000)
             ),
@@ -78,9 +82,8 @@ export default function HomeScreen({ route, navigation }: Props) {
         }
       }
 
-      const emergencia = await criarEmergencia(lat, lon, 'emergencia_cidadao', 3, userId);
-      // Backend ja faz auto-despacho dentro do POST /emergencia
-      setLastEmergencia({ id: emergencia.id, status: emergencia.status, lat, lon });
+      const emergencia = await criarEmergencia(lat, lon, tipo, 3, userId);
+      setLastEmergencia({ id: emergencia.id, status: emergencia.status, lat, lon, tipo });
 
       navigation.navigate('Acompanhamento', {
         emergenciaId: emergencia.id, lat, lon, nome,
@@ -88,7 +91,7 @@ export default function HomeScreen({ route, navigation }: Props) {
     } catch (err: any) {
       Alert.alert('Erro', err.message || 'Falha ao enviar emergencia');
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
@@ -96,7 +99,7 @@ export default function HomeScreen({ route, navigation }: Props) {
     <ScrollView style={styles.container} contentContainerStyle={{ flexGrow: 1 }}>
       <View style={styles.userBar}>
         <View>
-          <Text style={styles.greeting}>Ola, {nome.split(' ')[0]}</Text>
+          <Text style={styles.greeting}>Olá, {nome.split(' ')[0]}</Text>
           <Text style={styles.cpfText}>CPF: {cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.***.***-$4')}</Text>
         </View>
         <TouchableOpacity onPress={() => navigation.replace('Login')}>
@@ -105,44 +108,55 @@ export default function HomeScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.center}>
-        <Text style={styles.instruction}>
-          Pressione o botao em caso de emergencia
-        </Text>
+        <Text style={styles.instruction}>Selecione o tipo de emergência</Text>
 
-        <TouchableOpacity
-          style={[styles.emergencyButton, loading && styles.buttonDisabled]}
-          onPress={handleEmergencia}
-          disabled={loading}
-          activeOpacity={0.7}
-        >
-          {loading ? (
-            <ActivityIndicator size="large" color={colors.text} />
-          ) : (
-            <>
-              <Text style={styles.emergencyIcon}>🚨</Text>
-              <Text style={styles.emergencyText}>EMERGENCIA</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        <View style={styles.buttonsRow}>
+          {TIPOS.map(({ tipo, label, icon, color, colorDark }) => {
+            const isLoading = loading === tipo;
+            const isDisabled = loading !== null;
+            return (
+              <TouchableOpacity
+                key={tipo}
+                style={[
+                  styles.emergencyButton,
+                  { backgroundColor: color, borderColor: colorDark, shadowColor: color },
+                  isDisabled && styles.buttonDisabled,
+                ]}
+                onPress={() => handleEmergencia(tipo)}
+                disabled={isDisabled}
+                activeOpacity={0.7}
+              >
+                {isLoading ? (
+                  <ActivityIndicator size="large" color="#fff" />
+                ) : (
+                  <>
+                    <Text style={styles.emergencyIcon}>{icon}</Text>
+                    <Text style={styles.emergencyText}>{label}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-        <Text style={styles.hint}>
-          Sua localizacao GPS sera enviada automaticamente
-        </Text>
+        <Text style={styles.hint}>Sua localização GPS será enviada automaticamente</Text>
       </View>
 
       {lastEmergencia && (
         <View style={styles.statusBar}>
-          <Text style={styles.statusTitle}>Ultimo chamado</Text>
+          <Text style={styles.statusTitle}>Último chamado</Text>
           <View style={styles.statusRow}>
             <Text style={styles.statusLabel}>Protocolo:</Text>
             <Text style={styles.statusValue}>#{lastEmergencia.id}</Text>
           </View>
           <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Tipo:</Text>
+            <Text style={styles.statusValue}>{lastEmergencia.tipo === 'policia' ? 'Policial' : 'Médica'}</Text>
+          </View>
+          <View style={styles.statusRow}>
             <Text style={styles.statusLabel}>Status:</Text>
             <View style={styles.statusBadge}>
-              <Text style={styles.statusBadgeText}>
-                {lastEmergencia.status.toUpperCase()}
-              </Text>
+              <Text style={styles.statusBadgeText}>{lastEmergencia.status.toUpperCase()}</Text>
             </View>
           </View>
           <View style={{ marginTop: 12 }}>
@@ -196,39 +210,43 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 32,
   },
-  emergencyButton: {
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: colors.primary,
+  buttonsRow: {
+    flexDirection: 'row',
+    gap: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: colors.primary,
+  },
+  emergencyButton: {
+    width: 150,
+    height: 170,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 30,
-    elevation: 20,
-    borderWidth: 4,
-    borderColor: colors.primaryDark,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 16,
+    borderWidth: 3,
   },
   buttonDisabled: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
   emergencyIcon: {
-    fontSize: 48,
-    marginBottom: 8,
+    fontSize: 44,
+    marginBottom: 10,
   },
   emergencyText: {
-    color: colors.text,
-    fontSize: 20,
+    color: '#fff',
+    fontSize: 14,
     fontWeight: 'bold',
-    letterSpacing: 2,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   hint: {
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginTop: 24,
+    marginTop: 28,
   },
   statusBar: {
     backgroundColor: colors.surface,

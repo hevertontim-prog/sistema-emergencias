@@ -71,3 +71,18 @@ export async function buscarEmergencia(id: number) {
 export async function buscarFrota() {
   return request<any[]>('/frota');
 }
+
+export interface AcompanhamentoData {
+  status: string;
+  despacho_id: number | null;
+  agente_nome: string | null;
+  tipo_recurso: string | null;
+  agente_lat: number | null;
+  agente_lon: number | null;
+  eta_segundos: number | null;
+  distancia_km: number | null;
+}
+
+export function buscarAcompanhamento(emergenciaId: number) {
+  return request<AcompanhamentoData>(`/emergencia/${emergenciaId}/acompanhamento`);
+}
