@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:8006';
+const API_URL = 'https://sistema-emergencias-production.up.railway.app';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
