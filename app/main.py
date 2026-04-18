@@ -31,6 +31,20 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Sistema de Emergencias")
 
+
+@app.on_event("startup")
+def popular_banco_se_vazio():
+    """Roda o seed automaticamente se nao houver agentes (util em ambientes
+    efemeros como Railway onde o SQLite zera a cada deploy)."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        if db.query(Agente).count() == 0:
+            from app.seed import seed
+            seed()
+    finally:
+        db.close()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
