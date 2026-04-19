@@ -50,16 +50,30 @@ var emergIcon = L.divIcon({html:'<div style="font-size:30px;filter:drop-shadow(0
 L.marker([${emergLat},${emergLon}],{icon:emergIcon}).addTo(map).bindPopup('Ocorrência').openPopup();
 var agenteIcon = L.divIcon({html:'<div style="font-size:30px;filter:drop-shadow(0 0 4px #3b82f6)">📍<\/div>',iconSize:[36,36],iconAnchor:[18,18],className:''});
 var agenteMarker = null;
+var rotaLayer = null;
+var rotaHalo = null;
 window.addEventListener('message',function(e){
-  if(!e.data||e.data.type!=='UPDATE_AGENTE') return;
-  var ll=[e.data.lat,e.data.lon];
-  if(!agenteMarker){
-    agenteMarker=L.marker(ll,{icon:agenteIcon}).addTo(map).bindPopup('Você');
-  } else {
-    agenteMarker.setLatLng(ll);
-  }
-  if(e.data.fit && agenteMarker){
-    map.fitBounds([[${emergLat},${emergLon}],ll],{padding:[30,30]});
+  if(!e.data) return;
+  if(e.data.type==='UPDATE_AGENTE'){
+    var ll=[e.data.lat,e.data.lon];
+    if(!agenteMarker){
+      agenteMarker=L.marker(ll,{icon:agenteIcon}).addTo(map).bindPopup('Você');
+    } else {
+      agenteMarker.setLatLng(ll);
+    }
+    if(e.data.fit && agenteMarker){
+      map.fitBounds([[${emergLat},${emergLon}],ll],{padding:[30,30]});
+    }
+  } else if(e.data.type==='UPDATE_ROTA'){
+    if(rotaLayer){ map.removeLayer(rotaLayer); rotaLayer=null; }
+    if(rotaHalo){ map.removeLayer(rotaHalo); rotaHalo=null; }
+    if(e.data.coords && e.data.coords.length>1){
+      rotaHalo = L.polyline(e.data.coords,{color:'#1e3a8a',weight:9,opacity:0.35}).addTo(map);
+      rotaLayer = L.polyline(e.data.coords,{
+        color:'#3b82f6', weight:5, opacity:0.85,
+        lineCap:'round', lineJoin:'round',
+      }).addTo(map);
+    }
   }
 });
 <\/script>
@@ -95,6 +109,22 @@ export default function AtendimentoScreen({ route, navigation }: Props) {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const firstUpdate = useRef(true);
 
+  async function fetchRota(agLat: number, agLon: number) {
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${agLon},${agLat};${lon},${lat}?overview=full&geometries=geojson`;
+      const r = await fetch(url);
+      if (!r.ok) return;
+      const j = await r.json();
+      const coords = j?.routes?.[0]?.geometry?.coordinates;
+      if (!coords || !iframeRef.current?.contentWindow) return;
+      const latlngs = coords.map((c: number[]) => [c[1], c[0]]);
+      iframeRef.current.contentWindow.postMessage(
+        { type: 'UPDATE_ROTA', coords: latlngs },
+        '*'
+      );
+    } catch {}
+  }
+
   useEffect(() => {
     async function poll() {
       try {
@@ -106,6 +136,7 @@ export default function AtendimentoScreen({ route, navigation }: Props) {
             '*'
           );
           firstUpdate.current = false;
+          fetchRota(d.agente_lat, d.agente_lon);
         }
       } catch {}
     }
