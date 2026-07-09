@@ -1,4 +1,5 @@
 const API_URL = 'https://sistema-emergencias-production.up.railway.app';
+const API_KEY = process.env.EXPO_PUBLIC_API_KEY;
 
 export interface Usuario {
   id: number;
@@ -20,7 +21,7 @@ export interface EmergenciaResponse {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY || '' },
     ...options,
   });
   if (!res.ok) {
