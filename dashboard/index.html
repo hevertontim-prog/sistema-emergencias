@@ -190,6 +190,15 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const agenteMarkers = {}; // id_agente -> marker
 const emergMarkers = {};  // id_emergencia -> marker
 
+const EMERG_COLOR_FALLBACK = { medica: '#ef4444', bombeiro: '#f59e0b', policia: '#3b82f6' };
+
+function corPorGravidade(e) {
+  if (e.gravidade == null) return EMERG_COLOR_FALLBACK[e.tipo] || '#ef4444';
+  if (e.gravidade <= 2) return '#10b981';
+  if (e.gravidade === 3) return '#f59e0b';
+  return '#ef4444';
+}
+
 function makeIcon(emoji, color) {
   return L.divIcon({
     html: `<div style="font-size:28px;filter:drop-shadow(0 0 6px ${color})">${emoji}</div>`,
@@ -267,14 +276,16 @@ function renderEmergencias(ems) {
   el.innerHTML = ems.map(e => {
     const tipoClass = `tipo-${e.tipo}`;
     const stKey = e.status || 'aberta';
+    const pulseClass = stKey === 'aberta' ? ' pulse' : '';
     return `
-      <div class="chamado ${stKey}">
+      <div class="chamado ${stKey}${pulseClass}">
         <div class="chamado-header">
           <span class="chamado-id">#${e.id} · ${fmtHora(e.created_at)}</span>
           <span class="chamado-tipo ${tipoClass}">${e.tipo}</span>
         </div>
         <div class="chamado-info">
           <strong>${e.usuario_nome || 'Cidadão'}</strong>
+          ${e.descricao ? `<br>${e.descricao}` : ''}
           ${e.agente_nome ? `<br>🚓 ${e.agente_nome}` : '<br>⏳ Aguardando despacho'}
           <br>📍 ${e.lat.toFixed(4)}, ${e.lon.toFixed(4)}
         </div>
@@ -325,13 +336,15 @@ function renderMapa(frota, ems) {
   ems.filter(e => e.status === 'aberta' || e.status === 'em_atendimento').forEach(e => {
     emIdsAtivos.add(e.id);
     const icon = EMERG_ICON[e.tipo] || '🚨';
+    const color = corPorGravidade(e);
     const ll = [e.lat, e.lon];
-    const popup = `<b>Ocorrência #${e.id}</b><br>${e.tipo} · ${statusLabel(e.status)}<br>${e.usuario_nome || ''}`;
+    const gravLabel = e.gravidade != null ? ` · gravidade ${e.gravidade}` : '';
+    const popup = `<b>${e.tipo}${gravLabel}</b><br>Ocorrência #${e.id} · ${statusLabel(e.status)}<br>${e.usuario_nome || ''}`;
     if (emergMarkers[e.id]) {
-      emergMarkers[e.id].setLatLng(ll);
+      emergMarkers[e.id].setLatLng(ll).setIcon(makeIcon(icon, color));
       emergMarkers[e.id].setPopupContent(popup);
     } else {
-      emergMarkers[e.id] = L.marker(ll, { icon: makeIcon(icon, '#ef4444') }).addTo(map).bindPopup(popup);
+      emergMarkers[e.id] = L.marker(ll, { icon: makeIcon(icon, color) }).addTo(map).bindPopup(popup);
     }
   });
   Object.keys(emergMarkers).forEach(id => {
