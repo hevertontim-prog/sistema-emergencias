@@ -29,7 +29,16 @@ from app.schemas import (
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Sistema de Emergencias")
+app = FastAPI(
+    title="SalvAI API",
+    version="1.0.0-mvp",
+    description=(
+        "Plataforma SaaS B2G de gestão integrada de emergências — CAD digital, "
+        "triagem por IA, despacho automático e rastreamento de frota. "
+        "Depósitos INPI: BR 10 2026 006948 5 e adições."
+    ),
+    redirect_slashes=True,
+)
 
 
 @app.on_event("startup")
