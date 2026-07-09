@@ -11,7 +11,7 @@ import anthropic
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -61,6 +61,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def verificar_api_key(x_api_key: str = Header(None)):
+    chave = os.environ.get("SALVAI_API_KEY")
+    if not chave or x_api_key != chave:
+        raise HTTPException(status_code=401, detail="API key inválida ou ausente")
+
 
 DESPACHO_STATUS_VALIDOS = {"a_caminho", "no_local", "finalizado"}
 
@@ -119,7 +125,7 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 # ──────────────────────────── POST /usuario ──────────────────────
 
-@app.post("/usuario", response_model=UsuarioResponse, status_code=201)
+@app.post("/usuario", response_model=UsuarioResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
 def criar_usuario(dados: UsuarioCreate, db: Session = Depends(get_db)):
     existente = db.query(Usuario).filter(Usuario.cpf == dados.cpf).first()
     if existente:
@@ -133,7 +139,7 @@ def criar_usuario(dados: UsuarioCreate, db: Session = Depends(get_db)):
 
 # ──────────────────────────── PUT /usuario/{id}/push-token ────────
 
-@app.put("/usuario/{usuario_id}/push-token")
+@app.put("/usuario/{usuario_id}/push-token", dependencies=[Depends(verificar_api_key)])
 def salvar_push_token(usuario_id: int, dados: PushTokenUpdate, db: Session = Depends(get_db)):
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario:
@@ -145,7 +151,7 @@ def salvar_push_token(usuario_id: int, dados: PushTokenUpdate, db: Session = Dep
 
 # ──────────────────────────── POST /emergencia ────────────────────
 
-@app.post("/emergencia", response_model=EmergenciaResponse, status_code=201)
+@app.post("/emergencia", response_model=EmergenciaResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
 def criar_emergencia(dados: EmergenciaCreate, db: Session = Depends(get_db)):
     usuario = db.query(Usuario).filter(Usuario.id == dados.id_usuario).first()
     if not usuario:
@@ -394,7 +400,7 @@ def _executar_despacho(emergencia: Emergencia, db: Session) -> Optional[Tuple[De
 
 # ──────────────────────────── POST /despacho ──────────────────────
 
-@app.post("/despacho", response_model=DespachoResponse, status_code=201)
+@app.post("/despacho", response_model=DespachoResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
 def criar_despacho(dados: DespachoCreate, db: Session = Depends(get_db)):
     emergencia = db.query(Emergencia).filter(
         Emergencia.id == dados.id_emergencia
@@ -420,7 +426,11 @@ def criar_despacho(dados: DespachoCreate, db: Session = Depends(get_db)):
 
 # ──────────────────────────── PATCH /despacho/{id}/status ─────────
 
-@app.patch("/despacho/{despacho_id}/status", response_model=DespachoResponse)
+@app.patch(
+    "/despacho/{despacho_id}/status",
+    response_model=DespachoResponse,
+    dependencies=[Depends(verificar_api_key)],
+)
 def atualizar_status_despacho(
     despacho_id: int,
     dados: DespachoStatusUpdate,
@@ -469,7 +479,7 @@ def atualizar_status_despacho(
 
 # ──────────────────────────── POST /posicao ───────────────────────
 
-@app.post("/posicao", response_model=PosicaoResponse, status_code=201)
+@app.post("/posicao", response_model=PosicaoResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
 def registrar_posicao(dados: PosicaoCreate, db: Session = Depends(get_db)):
     agente = db.query(Agente).filter(Agente.id == dados.id_agente).first()
     if not agente:
@@ -506,7 +516,7 @@ Criterios de recurso:
 - bombeiro: incendios, salvamentos, desastres naturais"""
 
 
-@app.post("/triagem", response_model=TriagemResponse)
+@app.post("/triagem", response_model=TriagemResponse, dependencies=[Depends(verificar_api_key)])
 def triagem_ia(dados: TriagemRequest):
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
