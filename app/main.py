@@ -297,6 +297,7 @@ def listar_emergencias(limit: int = 50, db: Session = Depends(get_db)):
             "tipo": e.tipo,
             "gravidade": e.gravidade,
             "status": e.status,
+            "descricao": e.descricao,
             "lat": e.lat,
             "lon": e.lon,
             "created_at": e.created_at.isoformat() if e.created_at else None,

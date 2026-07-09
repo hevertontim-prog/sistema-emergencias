@@ -62,6 +62,12 @@ Popular o banco SQLite com dados de teste (5 agentes, 1 usuário João Silva):
 python -m app.seed
 ```
 
+Popular com um cenário de demonstração (5 emergências em Brasília, idempotente):
+
+```bash
+railway run python scripts/seed_demo.py
+```
+
 Subir servidor:
 
 ```bash

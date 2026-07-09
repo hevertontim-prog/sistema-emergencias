@@ -28,6 +28,7 @@ class EmergenciaCreate(BaseModel):
     tipo: str
     gravidade: int
     id_usuario: int
+    descricao: Optional[str] = None
 
 
 class EmergenciaResponse(BaseModel):
@@ -39,6 +40,7 @@ class EmergenciaResponse(BaseModel):
     status: str
     id_usuario: int
     created_at: datetime
+    descricao: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

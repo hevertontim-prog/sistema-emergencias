@@ -26,6 +26,7 @@ class Emergencia(Base):
     tipo = Column(String(50), nullable=False)
     gravidade = Column(Integer, nullable=False)
     status = Column(String(20), default="aberta")
+    descricao = Column(String(500), nullable=True)
     id_usuario = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
