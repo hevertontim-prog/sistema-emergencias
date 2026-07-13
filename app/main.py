@@ -286,6 +286,44 @@ def acompanhamento_emergencia(emergencia_id: int, db: Session = Depends(get_db))
     )
 
 
+# ──────────────────────── PATCH /emergencia/{id}/finalizar ────────
+
+@app.patch("/emergencia/{emergencia_id}/finalizar", response_model=EmergenciaResponse, dependencies=[Depends(verificar_api_key)])
+def finalizar_emergencia(emergencia_id: int, db: Session = Depends(get_db), x_operador: str = Header(None)):
+    """Finaliza uma ocorrencia direto pelo painel do gestor, com ou sem despacho
+    ativo (cobre tanto 'aberta' aguardando agente quanto 'em_atendimento').
+    Libera o agente se houver despacho em andamento."""
+    emergencia = db.query(Emergencia).filter(Emergencia.id == emergencia_id).first()
+    if not emergencia:
+        raise HTTPException(status_code=404, detail="Emergencia nao encontrada")
+    if emergencia.status == "finalizada":
+        return emergencia
+
+    despacho_ativo = (
+        db.query(Despacho)
+        .filter(Despacho.id_emergencia == emergencia_id, Despacho.status != "finalizado")
+        .order_by(Despacho.id.desc())
+        .first()
+    )
+    if despacho_ativo:
+        despacho_ativo.status = "finalizado"
+        agente = db.query(Agente).filter(Agente.id == despacho_ativo.id_agente).first()
+        if agente:
+            agente.status = "disponivel"
+
+    emergencia.status = "finalizada"
+    db.commit()
+
+    registrar_auditoria(
+        db, f"operador:{x_operador or 'nao_informado'}", "finalizar_emergencia",
+        "emergencia", emergencia.id,
+        f"finalizado manualmente pelo painel" + (f" (despacho #{despacho_ativo.id} liberado)" if despacho_ativo else ""),
+    )
+
+    db.refresh(emergencia)
+    return emergencia
+
+
 # ──────────────────────────── GET /frota ──────────────────────────
 
 @app.get("/frota", response_model=list[AgenteFrota])
