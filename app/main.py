@@ -33,6 +33,26 @@ from app.schemas import (
 
 Base.metadata.create_all(bind=engine)
 
+
+def _garantir_colunas_novas():
+    """Base.metadata.create_all so cria tabelas que ainda nao existem — nao
+    adiciona colunas novas a tabelas ja existentes (ex: producao com Postgres
+    persistente). Sem Alembic, entao colunas adicionadas apos o primeiro
+    deploy de uma tabela precisam ser registradas aqui (aditivo, idempotente)."""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        if engine.dialect.name == "postgresql":
+            conn.execute(text("ALTER TABLE agentes ADD COLUMN IF NOT EXISTS push_token VARCHAR(200)"))
+            conn.commit()
+        elif engine.dialect.name == "sqlite":
+            colunas = [row[1] for row in conn.execute(text("PRAGMA table_info(agentes)"))]
+            if "push_token" not in colunas:
+                conn.execute(text("ALTER TABLE agentes ADD COLUMN push_token VARCHAR(200)"))
+                conn.commit()
+
+
+_garantir_colunas_novas()
+
 app = FastAPI(
     title="SalvAI API",
     version="1.0.0-mvp",
