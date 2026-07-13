@@ -32,6 +32,11 @@
   .stat.warning .stat-num { color: #f59e0b; }
   .stat.info .stat-num { color: #3b82f6; }
   .stat.success .stat-num { color: #10b981; }
+  .stat.clicavel { cursor: pointer; transition: border-color 0.15s, transform 0.1s; }
+  .stat.clicavel:hover { border-color: #4a4a6e; transform: translateY(-1px); }
+  .stat.clicavel.ativo.danger { border-color: #ef4444; }
+  .stat.clicavel.ativo.info { border-color: #3b82f6; }
+  .stat.clicavel.ativo.success { border-color: #10b981; }
 
   main {
     display: grid;
@@ -191,15 +196,15 @@
       <button class="btn-acao secundario" id="btn-cadastros" onclick="abrirModalCadastros()">⚙️ Cadastros</button>
     </div>
     <div class="stats">
-      <div class="stat danger">
+      <div class="stat danger clicavel" id="card-ativas" onclick="toggleFiltro('aberta')">
         <div class="stat-num" id="stat-ativas">0</div>
         <div class="stat-label">Ativas</div>
       </div>
-      <div class="stat info">
+      <div class="stat info clicavel" id="card-atendimento" onclick="toggleFiltro('em_atendimento')">
         <div class="stat-num" id="stat-atendimento">0</div>
         <div class="stat-label">Em Atendimento</div>
       </div>
-      <div class="stat success">
+      <div class="stat success clicavel" id="card-finalizadas" onclick="window.location.href='historico.html'">
         <div class="stat-num" id="stat-finalizadas">0</div>
         <div class="stat-label">Finalizadas</div>
       </div>
@@ -232,7 +237,7 @@
     <!-- Chamados -->
     <section class="panel">
       <div class="panel-header">
-        <span class="panel-title">📋 Resumo de Chamados</span>
+        <span class="panel-title" id="chamados-titulo">📋 Operação ao Vivo</span>
         <span class="panel-count" id="chamados-count">0</span>
       </div>
       <div class="panel-body" id="chamados-list"></div>
@@ -425,17 +430,40 @@ async function fetchJSON(path) {
   return r.json();
 }
 
+let filtroAtivo = null; // null (padrão) | 'aberta' | 'em_atendimento'
+
+function toggleFiltro(status) {
+  filtroAtivo = filtroAtivo === status ? null : status;
+  atualizarCardsFiltro();
+  if (ultimosAtivos) {
+    renderEmergencias(ultimosAtivos);
+  }
+}
+
+function atualizarCardsFiltro() {
+  document.getElementById('card-ativas').classList.toggle('ativo', filtroAtivo === 'aberta');
+  document.getElementById('card-atendimento').classList.toggle('ativo', filtroAtivo === 'em_atendimento');
+  document.getElementById('chamados-titulo').textContent =
+    filtroAtivo === 'aberta' ? '📋 Chamados Ativos' :
+    filtroAtivo === 'em_atendimento' ? '📋 Em Atendimento' :
+    '📋 Operação ao Vivo';
+}
+
+let ultimosAtivos = null;
+
 async function refresh() {
   try {
-    const [frota, emergencias] = await Promise.all([
+    const [frota, ativos, todos] = await Promise.all([
       fetchJSON('/frota'),
-      fetchJSON('/emergencias?limit=30'),
+      fetchJSON('/emergencias?status=aberta,em_atendimento&limit=100'),
+      fetchJSON('/emergencias?limit=500'),
     ]);
 
+    ultimosAtivos = ativos;
     renderFrota(frota);
-    renderEmergencias(emergencias);
-    renderMapa(frota, emergencias);
-    renderStats(frota, emergencias);
+    renderEmergencias(ativos);
+    renderMapa(frota, ativos);
+    renderStats(frota, todos);
 
     document.getElementById('last-update').textContent =
       'Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
@@ -467,7 +495,8 @@ function renderFrota(frota) {
   }).join('');
 }
 
-function renderEmergencias(ems) {
+function renderEmergencias(ativos) {
+  const ems = filtroAtivo ? ativos.filter(e => e.status === filtroAtivo) : ativos;
   const el = document.getElementById('chamados-list');
   document.getElementById('chamados-count').textContent = ems.length;
   if (!ems.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📋</div>Sem chamados</div>'; return; }

@@ -402,14 +402,16 @@ def listar_frota(db: Session = Depends(get_db)):
 # ──────────────────────────── GET /emergencias (dashboard) ────────
 
 @app.get("/emergencias")
-def listar_emergencias(limit: int = 50, db: Session = Depends(get_db)):
-    """Lista emergências para o dashboard do gestor (mais recentes primeiro)."""
-    emergencias = (
-        db.query(Emergencia)
-        .order_by(Emergencia.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+def listar_emergencias(status: str = None, limit: int = 100, db: Session = Depends(get_db)):
+    """Lista emergências para o dashboard do gestor (mais recentes primeiro).
+    `status` aceita lista separada por vírgula (ex.: aberta,em_atendimento)."""
+    limit = min(limit, 500)
+    query = db.query(Emergencia)
+    if status:
+        status_list = [s.strip() for s in status.split(",") if s.strip()]
+        if status_list:
+            query = query.filter(Emergencia.status.in_(status_list))
+    emergencias = query.order_by(Emergencia.id.desc()).limit(limit).all()
     out = []
     for e in emergencias:
         despacho = (
@@ -436,6 +438,50 @@ def listar_emergencias(limit: int = 50, db: Session = Depends(get_db)):
             "despacho_id": despacho.id if despacho else None,
             "despacho_status": despacho.status if despacho else None,
             "agente_nome": agente_nome,
+        })
+    return out
+
+
+# ──────────────────────────── GET /historico ───────────────────────
+
+@app.get("/historico")
+def listar_historico(limit: int = 100, db: Session = Depends(get_db)):
+    """Chamados finalizados (mais recentes primeiro) com quem atendeu."""
+    limit = min(limit, 500)
+    emergencias = (
+        db.query(Emergencia)
+        .filter(Emergencia.status == "finalizada")
+        .order_by(Emergencia.id.desc())
+        .limit(limit)
+        .all()
+    )
+    out = []
+    for e in emergencias:
+        despacho = (
+            db.query(Despacho)
+            .filter(Despacho.id_emergencia == e.id)
+            .order_by(Despacho.id.desc())
+            .first()
+        )
+        agente_nome = None
+        tipo_recurso = None
+        if despacho:
+            ag = db.query(Agente).filter(Agente.id == despacho.id_agente).first()
+            if ag:
+                agente_nome = ag.nome
+                tipo_recurso = ag.tipo_recurso
+        usuario = db.query(Usuario).filter(Usuario.id == e.id_usuario).first()
+        finalizado_em = getattr(despacho, "updated_at", None) if despacho else None
+        out.append({
+            "id": e.id,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+            "tipo": e.tipo,
+            "gravidade": e.gravidade,
+            "descricao": e.descricao,
+            "usuario_nome": usuario.nome if usuario else None,
+            "agente_nome": agente_nome,
+            "tipo_recurso": tipo_recurso,
+            "finalizado_em": finalizado_em.isoformat() if finalizado_em else None,
         })
     return out
 
