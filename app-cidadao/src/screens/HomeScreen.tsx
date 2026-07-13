@@ -111,11 +111,11 @@ export default function HomeScreen({ route, navigation }: Props) {
 
       <View style={styles.center}>
         <View style={styles.descricaoBlock}>
-          <Text style={styles.descricaoLabel}>O que está acontecendo?</Text>
+          <Text style={styles.descricaoLabel}>Qual sua emergência?</Text>
           <View style={styles.descricaoRow}>
             <TextInput
               style={styles.descricaoInput}
-              placeholder="Descreva em poucas palavras — ajuda a IA a priorizar seu atendimento"
+              placeholder="Descreva sua emergência e nos ajude a priorizar seu atendimento"
               placeholderTextColor={colors.textSecondary}
               value={descricao}
               onChangeText={(v) => setDescricao(v.slice(0, 300))}
