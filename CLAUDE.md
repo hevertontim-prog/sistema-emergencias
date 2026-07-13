@@ -74,45 +74,59 @@ Dark theme nos dois apps, definido em `src/theme.ts`:
 
 ---
 
-## Estado atual do projeto (último commit: `cac7950`)
+## Estado atual do projeto (último commit: `2ca3dd2`, 13/07/2026)
 
 ### O que já funciona end-to-end
 
 1. Cidadão faz login com CPF + nome → backend cria/recupera usuário
-2. Botão de emergência → GPS (com fallback Brasília) → `POST /emergencia`
+2. Cidadão descreve o que está acontecendo (opcional, até 300 chars) e escolhe o tipo → GPS (fallback Brasília) → `POST /emergencia`. Se descreveu e não informou gravidade, a IA tria (corrige até o tipo se necessário); sem descrição, gravidade default 3.
 3. Backend auto-despacha o agente disponível mais próximo (Haversine)
-4. Cidadão vai pra tela Acompanhamento → mapa Leaflet + polling de status (5s)
-5. Push notification dispara pro celular do cidadão (só dispositivo físico)
-6. Agente loga com matrícula = ID dele → tela Chamados mostra o despacho ativo
-7. Agente avança status: a_caminho → no_local → finalizado
-8. Cidadão vê o status mudando em tempo real
+4. Cidadão vai pra tela Acompanhamento → mapa Leaflet, polling 3s, prioridade/tipo/descrição refletidos
+5. Push notification dispara pro celular do cidadão (só dispositivo físico) e, se o agente tiver `push_token`, pra ele também com o briefing da IA
+6. Agente loga com **ID numérico** do agente (não a matrícula tipo `PM001`) → tela Chamados mostra o despacho ativo
+7. Agente abre o chamado e vê um card com tipo/gravidade (selo G1–G5 colorido)/descrição completa, antes dos botões de status
+8. Agente avança status: a_caminho → no_local → finalizado
+9. Cidadão vê o status mudando em tempo real
+10. Painel do gestor (`dashboard/index.html`, estático, mount `/dashboard`): entrada manual de ocorrência com CEP/endereço/pino arrastável, trilha de auditoria, cadastro de agente/viatura/operador, botão Finalizar em qualquer chamado ativo
 
 ### Endpoints implementados
 
 ```
-POST   /usuario                       — cria ou retorna por CPF
-PUT    /usuario/{id}/push-token       — salva Expo push token
-POST   /emergencia                    — cria + auto-despacha
+POST   /usuario                            — cria ou retorna por CPF
+PUT    /usuario/{id}/push-token            — salva Expo push token
+PUT    /agente/{id}/push-token             — idem, pro agente
+POST   /emergencia                         — cria (cidadão) + triagem IA opcional + auto-despacha
 GET    /emergencia/{id}
-GET    /frota                         — agentes + despacho_id/emergencia_id ativos
-POST   /despacho                      — manual (mesmo helper)
+GET    /emergencia/{id}/acompanhamento     — status, tipo, gravidade, descricao, ETA, posição do agente
+PATCH  /emergencia/{id}/finalizar          — finaliza c/ ou sem despacho ativo, libera agente
+GET    /frota                              — agentes + despacho_id/emergencia_id ativos
+GET    /emergencias                        — lista pro dashboard
+POST   /despacho                           — manual (mesmo helper que o automático)
 PATCH  /despacho/{id}/status
-POST   /posicao                       — GPS update do agente
-POST   /triagem                       — Claude Sonnet
+POST   /posicao                            — GPS update do agente
+POST   /triagem                            — chamada direta à IA (usada pelo app-agente)
+POST   /ocorrencias/manual                 — modo operador (central), triagem IA automática
+GET    /auditoria                          — trilha de eventos
+POST   /agentes · GET /agentes             — cadastro
+POST   /viaturas
+POST   /operadores · GET /operadores
 ```
 
 ### Modelos do banco
 
 - `Usuario` — id, cpf, nome, push_token
-- `Agente` — id, nome, matricula, tipo_recurso (`policia`/`ambulancia`/`bombeiro`), status
+- `Agente` — id, nome, matricula, tipo_recurso (`policia`/`ambulancia`/`bombeiro`), status, push_token
 - `Viatura` — id, placa, tipo, id_agente
-- `Emergencia` — id, lat, lon, tipo, gravidade, status, id_usuario, created_at
+- `Emergencia` — id, lat, lon, tipo, gravidade, status, descricao, id_usuario, created_at
 - `Despacho` — id, id_emergencia, id_agente, status, created_at
 - `PosicaoGPS` — id, id_agente, lat, lon, timestamp
+- `AuditLog` — id, ator, acao, entidade, entidade_id, detalhe, created_at
+- `Operador` — id, nome, matricula, ativo, created_at
 
 ### O que **não** está no git (recriar manualmente no Mac)
 
-- `.env` — contém `ANTHROPIC_API_KEY`
+- `.env` (raiz) — contém `ANTHROPIC_API_KEY`
+- `app-cidadao/.env` e `app-agente/.env` — `EXPO_PUBLIC_API_KEY` (mesma key do `SALVAI_API_KEY` do Railway). **Sem isso o app builda normal mas todo POST/PUT/PATCH falha com 401 silencioso** (login e criação de emergência incluídos).
 - `emergencias.db` — rodar `python -m app.seed`
 - `node_modules/` — `npm install` em cada app
 - `.venv/` — recriar venv Python
@@ -133,6 +147,8 @@ POST   /triagem                       — Claude Sonnet
 10. **Portas zumbis:** se uvicorn não morrer, no Mac usar `lsof -ti:8006 | xargs kill -9`.
 11. **Push notifications no Web:** sempre falham silenciosamente (não é dispositivo). Não logar como erro — só pular.
 12. **Schemas Pydantic v2:** `model_config = {"from_attributes": True}` é obrigatório quando o response model vem de objeto SQLAlchemy (substituiu o `Config: orm_mode = True`).
+13. **Tela branca no app-cidadao (web):** extensões de navegador (tradutores, bloqueadores de ads, Grammarly etc.) podem mexer no DOM por fora do React e causar `Uncaught NotFoundError: removeChild` — sem Error Boundary isso desmonta a árvore inteira. Sintoma: título da aba muda (React navegou) mas a tela fica branca. Diagnóstico: testar em aba anônima (extensões desligadas por padrão) — se sumir o problema, é isso. Mitigado com `app-cidadao/src/ErrorBoundary.tsx` envolvendo o `App.tsx`, mas o ideal é sempre testar em aba anônima antes de assumir bug no código.
+14. **`Base.metadata.create_all` só cria tabelas novas, não adiciona colunas a tabelas existentes.** Se adicionar uma coluna a um modelo que já tem tabela em produção (Postgres), o boot quebra com "coluna não existe" (502 em tudo, `db.query(Model).count()` já falha no startup). Sem Alembic, use um patch aditivo idempotente logo após o `create_all` (ver `_garantir_colunas_novas` em `app/main.py` — `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` no Postgres, checagem via `PRAGMA table_info` no SQLite). Sempre testar localmente simulando o schema antigo (criar a tabela manualmente sem a coluna nova) antes de fazer deploy.
 
 ---
 
