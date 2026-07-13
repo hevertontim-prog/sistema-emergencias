@@ -172,12 +172,28 @@ class OperadorResponse(BaseModel):
 # --- Ocorrencia manual (modo operador) ---
 class OcorrenciaManualCreate(BaseModel):
     tipo: str
-    gravidade: int
+    gravidade: Optional[int] = None
     lat: float
     lon: float
     descricao: Optional[str] = None
     nome_solicitante: Optional[str] = None
     operador: Optional[str] = None
+
+
+class OcorrenciaManualResponse(BaseModel):
+    id: int
+    lat: float
+    lon: float
+    tipo: str
+    gravidade: int
+    status: str
+    id_usuario: int
+    created_at: datetime
+    descricao: Optional[str] = None
+    triagem: Optional[dict] = None
+    despacho: Optional[dict] = None
+
+    model_config = {"from_attributes": True}
 
 
 # --- Auditoria ---

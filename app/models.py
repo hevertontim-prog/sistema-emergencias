@@ -42,6 +42,7 @@ class Agente(Base):
     matricula = Column(String(20), unique=True, nullable=False)
     tipo_recurso = Column(String(50), nullable=False)
     status = Column(String(20), default="disponivel")
+    push_token = Column(String(200), nullable=True)
 
     viaturas = relationship("Viatura", back_populates="agente")
     despachos = relationship("Despacho", back_populates="agente")

@@ -235,7 +235,7 @@
 <div class="modal-bg flutuante" id="modal-ocorrencia">
   <div class="modal">
     <button class="modal-fechar" onclick="fecharModalOcorrencia()">✕</button>
-    <h2>➕ Nova Ocorrência <small>Digite o CEP para posicionar — clique no mapa para ajustar o pino</small></h2>
+    <h2>➕ Nova Ocorrência <small>CEP ou endereço para posicionar — clique ou arraste o pino no mapa para ajustar</small></h2>
 
     <div class="linha">
       <div>
@@ -248,28 +248,17 @@
         <datalist id="lista-operadores"></datalist>
       </div>
     </div>
-    <div class="aviso-endereco" id="oc-endereco"></div>
 
-    <div class="linha">
-      <div>
-        <label>Tipo</label>
-        <select id="oc-tipo">
-          <option value="policia">🚔 Polícia</option>
-          <option value="medica">🚑 Médica</option>
-          <option value="bombeiro">🚒 Bombeiro</option>
-        </select>
-      </div>
-      <div>
-        <label>Gravidade</label>
-        <select id="oc-gravidade">
-          <option value="1">1 — Leve</option>
-          <option value="2">2 — Moderada</option>
-          <option value="3" selected>3 — Séria</option>
-          <option value="4">4 — Grave</option>
-          <option value="5">5 — Crítica</option>
-        </select>
-      </div>
-    </div>
+    <label>ou digite o endereço completo</label>
+    <input id="oc-endereco" placeholder="Rua, bairro, cidade... (Enter para buscar)">
+    <div class="aviso-endereco" id="oc-local-status"></div>
+
+    <label>Tipo</label>
+    <select id="oc-tipo">
+      <option value="policia">🚔 Polícia</option>
+      <option value="medica">🚑 Médica</option>
+      <option value="bombeiro">🚒 Bombeiro</option>
+    </select>
 
     <label>Descrição</label>
     <textarea id="oc-descricao" placeholder="Relato do solicitante"></textarea>
@@ -283,7 +272,6 @@
     <div class="briefing-ia" id="oc-briefing"></div>
 
     <div class="acoes">
-      <button class="btn-acao secundario" id="oc-btn-triar" onclick="triarComIA()">🤖 Triar com IA</button>
       <button class="btn-acao" id="oc-btn-confirmar" onclick="confirmarOcorrencia()">✅ Confirmar</button>
     </div>
   </div>
@@ -561,7 +549,6 @@ setInterval(refresh, 3000);
 
 // ──────────────── Modo Operador: nova ocorrência manual ────────────────
 
-const RECURSO_IA_PARA_TIPO = { viatura_PM: 'policia', ambulancia_SAMU: 'medica', bombeiro: 'bombeiro' };
 let pinoOcorrencia = null;
 let modalOcorrenciaAberto = false;
 
@@ -573,13 +560,18 @@ function setPino(lat, lon) {
       draggable: true,
       icon: makeIcon('📍', '#ef4444'),
     }).addTo(map).bindPopup('Local da ocorrência (arraste para ajustar)');
+    pinoOcorrencia.on('dragend', () => {
+      const ll = pinoOcorrencia.getLatLng();
+      document.getElementById('oc-local-status').textContent =
+        `📍 Ajustado manualmente: ${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`;
+    });
   }
 }
 
 map.on('click', (e) => {
   if (!modalOcorrenciaAberto) return;
   setPino(e.latlng.lat, e.latlng.lng);
-  document.getElementById('oc-endereco').textContent =
+  document.getElementById('oc-local-status').textContent =
     `📍 Ajustado no mapa: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
 });
 
@@ -587,6 +579,8 @@ function abrirModalOcorrencia() {
   modalOcorrenciaAberto = true;
   document.getElementById('oc-key').value = sessionStorage.getItem('salvai_key') || '';
   document.getElementById('oc-operador').value = sessionStorage.getItem('salvai_operador') || '';
+  const btn = document.getElementById('oc-btn-confirmar');
+  btn.disabled = false; btn.textContent = '✅ Confirmar';
   document.getElementById('modal-ocorrencia').classList.add('aberto');
 }
 
@@ -594,6 +588,7 @@ function fecharModalOcorrencia() {
   modalOcorrenciaAberto = false;
   document.getElementById('modal-ocorrencia').classList.remove('aberto');
   document.getElementById('oc-briefing').style.display = 'none';
+  document.getElementById('oc-local-status').textContent = '';
   if (pinoOcorrencia) { map.removeLayer(pinoOcorrencia); pinoOcorrencia = null; }
 }
 
@@ -601,28 +596,60 @@ function fecharModalOcorrencia() {
 document.getElementById('oc-cep').addEventListener('input', async (ev) => {
   const cep = ev.target.value.replace(/\D/g, '');
   if (cep.length !== 8) return;
-  const avisoEl = document.getElementById('oc-endereco');
+  const avisoEl = document.getElementById('oc-local-status');
   avisoEl.textContent = '🔎 Buscando endereço...';
   try {
     const via = await (await fetch(`https://viacep.com.br/ws/${cep}/json/`)).json();
     if (via.erro) { avisoEl.textContent = '⚠️ CEP não encontrado'; return; }
     const endereco = [via.logradouro, via.bairro, via.localidade, via.uf, 'Brasil']
       .filter(Boolean).join(', ');
-    const nom = await (await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(endereco)}`
+    let nom = await (await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(endereco)}`
     )).json();
+    if (!nom.length) {
+      // fallback: tenta so bairro/cidade/UF (menos granular que logradouro exato)
+      const enderecoAmplo = [via.bairro, via.localidade, via.uf, 'Brasil'].filter(Boolean).join(', ');
+      nom = await (await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(enderecoAmplo)}`
+      )).json();
+    }
     if (!nom.length) { avisoEl.textContent = `⚠️ Endereço achado (${endereco}) mas sem coordenadas — clique no mapa`; return; }
     const lat = parseFloat(nom[0].lat), lon = parseFloat(nom[0].lon);
     setPino(lat, lon);
-    map.setView([lat, lon], 15);
+    map.setView([lat, lon], 17);
     avisoEl.textContent = `📍 ${endereco}`;
   } catch (e) {
     avisoEl.textContent = '⚠️ Erro ao buscar CEP — clique no mapa para posicionar';
   }
 });
 
+// Endereço livre → Nominatim (so no blur/Enter, nunca a cada tecla — respeita 1 req/s)
+async function geocodificarEndereco() {
+  const input = document.getElementById('oc-endereco');
+  const texto = input.value.trim();
+  if (texto.length < 8) return;
+  const avisoEl = document.getElementById('oc-local-status');
+  avisoEl.textContent = '🔎 Buscando endereço...';
+  try {
+    const nom = await (await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(texto)}`
+    )).json();
+    if (!nom.length) { avisoEl.textContent = '⚠️ Endereço não encontrado — clique no mapa para posicionar'; return; }
+    const lat = parseFloat(nom[0].lat), lon = parseFloat(nom[0].lon);
+    setPino(lat, lon);
+    map.setView([lat, lon], 17);
+    avisoEl.textContent = `📍 ${texto}`;
+  } catch (e) {
+    avisoEl.textContent = '⚠️ Erro ao buscar endereço — clique no mapa para posicionar';
+  }
+}
+document.getElementById('oc-endereco').addEventListener('change', geocodificarEndereco);
+document.getElementById('oc-endereco').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') { ev.preventDefault(); geocodificarEndereco(); }
+});
+
 function dadosOcorrencia() {
-  if (!pinoOcorrencia) { alert('Posicione o pino: digite um CEP ou clique no mapa.'); return null; }
+  if (!pinoOcorrencia) { alert('Posicione o pino: digite CEP/endereço ou clique no mapa.'); return null; }
   const key = document.getElementById('oc-key').value.trim();
   if (!key) { alert('Informe a chave API.'); return null; }
   const operador = document.getElementById('oc-operador').value.trim();
@@ -632,55 +659,23 @@ function dadosOcorrencia() {
   return {
     key, operador,
     tipo: document.getElementById('oc-tipo').value,
-    gravidade: parseInt(document.getElementById('oc-gravidade').value),
     lat: ll.lat, lon: ll.lng,
     descricao: document.getElementById('oc-descricao').value.trim(),
     nome_solicitante: document.getElementById('oc-solicitante').value.trim(),
   };
 }
 
-async function triarComIA() {
-  const d = dadosOcorrencia();
-  if (!d) return;
-  if (!d.descricao) { alert('Descreva a ocorrência para a IA triar.'); return; }
-  const btn = document.getElementById('oc-btn-triar');
-  btn.disabled = true; btn.textContent = '🤖 Triando...';
-  try {
-    const r = await fetch(API_URL + '/triagem', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': d.key },
-      body: JSON.stringify({
-        tipo: d.tipo, latitude: d.lat, longitude: d.lon,
-        horario: new Date().toISOString(), descricao: d.descricao,
-      }),
-    });
-    if (!r.ok) throw new Error((await r.json()).detail || r.status);
-    const t = await r.json();
-    document.getElementById('oc-gravidade').value = String(t.gravidade);
-    if (RECURSO_IA_PARA_TIPO[t.recurso_sugerido]) {
-      document.getElementById('oc-tipo').value = RECURSO_IA_PARA_TIPO[t.recurso_sugerido];
-    }
-    const bEl = document.getElementById('oc-briefing');
-    bEl.style.display = 'block';
-    bEl.textContent = `🤖 Gravidade ${t.gravidade} · ${t.recurso_sugerido} — ${t.briefing}`;
-  } catch (e) {
-    alert('Falha na triagem IA: ' + e.message);
-  } finally {
-    btn.disabled = false; btn.textContent = '🤖 Triar com IA';
-  }
-}
-
 async function confirmarOcorrencia() {
   const d = dadosOcorrencia();
   if (!d) return;
   const btn = document.getElementById('oc-btn-confirmar');
-  btn.disabled = true; btn.textContent = '✅ Enviando...';
+  btn.disabled = true; btn.textContent = '🤖 Triando e despachando...';
   try {
     const r = await fetch(API_URL + '/ocorrencias/manual', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': d.key },
       body: JSON.stringify({
-        tipo: d.tipo, gravidade: d.gravidade, lat: d.lat, lon: d.lon,
+        tipo: d.tipo, lat: d.lat, lon: d.lon,
         descricao: d.descricao || null,
         nome_solicitante: d.nome_solicitante || null,
         operador: d.operador || null,
@@ -688,12 +683,25 @@ async function confirmarOcorrencia() {
     });
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     const oc = await r.json();
-    alert(`Ocorrência #${oc.id} registrada — status: ${oc.status}`);
-    fecharModalOcorrencia();
+
+    const bEl = document.getElementById('oc-briefing');
+    bEl.style.display = 'block';
+    const t = oc.triagem, desp = oc.despacho;
+    const linhas = [];
+    if (t) {
+      const aviso = t.origem === 'fallback' ? ' ⚠️ IA indisponível — gravidade padrão' : '';
+      linhas.push(`🤖 Gravidade ${t.gravidade} · ${t.recurso_sugerido}${aviso}`);
+      if (t.briefing) linhas.push(`"${t.briefing}"`);
+    }
+    linhas.push(desp
+      ? `🚓 Despachado: ${desp.agente_nome} (${desp.distancia_km} km)`
+      : '⏳ Aguardando agente disponível');
+    bEl.textContent = `✅ Ocorrência #${oc.id} — ${linhas.join(' · ')}`;
+
     refresh();
+    setTimeout(fecharModalOcorrencia, 4000);
   } catch (e) {
     alert('Falha ao registrar: ' + e.message);
-  } finally {
     btn.disabled = false; btn.textContent = '✅ Confirmar';
   }
 }

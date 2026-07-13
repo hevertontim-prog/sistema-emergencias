@@ -3,6 +3,7 @@ import os
 import httpx
 import threading
 import time
+from datetime import datetime, timezone
 from math import radians, sin, cos, sqrt, atan2
 from pathlib import Path
 from typing import Optional, Tuple
@@ -25,7 +26,7 @@ from app.schemas import (
     DespachoCreate, DespachoResponse, DespachoStatusUpdate,
     PosicaoCreate, PosicaoResponse,
     TriagemRequest, TriagemResponse,
-    OcorrenciaManualCreate, AuditLogResponse,
+    OcorrenciaManualCreate, OcorrenciaManualResponse, AuditLogResponse,
     AgenteCreate, AgenteResponse, ViaturaCreate, ViaturaResponse,
     OperadorCreate, OperadorResponse,
 )
@@ -159,6 +160,18 @@ def salvar_push_token(usuario_id: int, dados: PushTokenUpdate, db: Session = Dep
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
     usuario.push_token = dados.push_token
+    db.commit()
+    return {"ok": True}
+
+
+# ──────────────────────────── PUT /agente/{id}/push-token ─────────
+
+@app.put("/agente/{agente_id}/push-token", dependencies=[Depends(verificar_api_key)])
+def salvar_push_token_agente(agente_id: int, dados: PushTokenUpdate, db: Session = Depends(get_db)):
+    agente = db.query(Agente).filter(Agente.id == agente_id).first()
+    if not agente:
+        raise HTTPException(status_code=404, detail="Agente nao encontrado")
+    agente.push_token = dados.push_token
     db.commit()
     return {"ok": True}
 
@@ -337,7 +350,7 @@ TIPO_EMERGENCIA_PARA_RECURSO = {
     "incendio": "bombeiro",
 }
 
-def _executar_despacho(emergencia: Emergencia, db: Session) -> Optional[Tuple[Despacho, Agente, float]]:
+def _executar_despacho(emergencia: Emergencia, db: Session, briefing: Optional[str] = None) -> Optional[Tuple[Despacho, Agente, float]]:
     """Encontra o agente disponivel mais proximo e cria o despacho.
     Retorna (despacho, agente, distancia_km) ou None se nenhum disponivel."""
     tipo_recurso = TIPO_EMERGENCIA_PARA_RECURSO.get(emergencia.tipo)
@@ -421,6 +434,16 @@ def _executar_despacho(emergencia: Emergencia, db: Session) -> Optional[Tuple[De
             usuario.push_token,
             "Viatura despachada!",
             f"Agente {melhor_agente.nome} a caminho ({round(menor_distancia, 1)} km)",
+        )
+
+    if melhor_agente.push_token:
+        detalhe = (briefing or emergencia.descricao or "").strip()
+        corpo = f"{detalhe[:100]} · maps: {emergencia.lat},{emergencia.lon}" if detalhe \
+            else f"maps: {emergencia.lat},{emergencia.lon}"
+        enviar_push(
+            melhor_agente.push_token,
+            f"🚨 Despacho G{emergencia.gravidade} — {emergencia.tipo}",
+            corpo,
         )
 
     return despacho, melhor_agente, menor_distancia
@@ -514,10 +537,14 @@ def atualizar_status_despacho(
 
 CPF_ENTRADA_MANUAL = "00000000000"
 
-@app.post("/ocorrencias/manual", response_model=EmergenciaResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
+RECURSO_IA_PARA_TIPO = {"viatura_PM": "policia", "ambulancia_SAMU": "medica", "bombeiro": "bombeiro"}
+
+@app.post("/ocorrencias/manual", response_model=OcorrenciaManualResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
 def criar_ocorrencia_manual(dados: OcorrenciaManualCreate, db: Session = Depends(get_db)):
     """Entrada manual de ocorrencia pelo operador da central (telefone/radio).
-    Vincula ao usuario sentinela 'Entrada Manual' e dispara o despacho automatico."""
+    Vincula ao usuario sentinela 'Entrada Manual' e dispara o despacho automatico.
+    Se a gravidade nao vier preenchida, a IA faz a triagem (fallback: gravidade 3
+    se a IA estiver indisponivel — o despacho nunca trava por isso)."""
     usuario = db.query(Usuario).filter(Usuario.cpf == CPF_ENTRADA_MANUAL).first()
     if not usuario:
         usuario = Usuario(cpf=CPF_ENTRADA_MANUAL, nome="Entrada Manual")
@@ -525,8 +552,33 @@ def criar_ocorrencia_manual(dados: OcorrenciaManualCreate, db: Session = Depends
         db.commit()
         db.refresh(usuario)
 
+    tipo = dados.tipo
+    gravidade = dados.gravidade
+
+    if gravidade is None:
+        resultado_ia = _triar_com_ia(dados.tipo, dados.descricao or "", dados.lat, dados.lon)
+        if resultado_ia:
+            gravidade = resultado_ia["gravidade"]
+            tipo = RECURSO_IA_PARA_TIPO.get(resultado_ia["recurso_sugerido"], dados.tipo)
+            triagem_info = {**resultado_ia, "origem": "ia"}
+        else:
+            gravidade = 3
+            triagem_info = {
+                "gravidade": 3,
+                "recurso_sugerido": TIPO_EMERGENCIA_PARA_RECURSO.get(dados.tipo, dados.tipo),
+                "briefing": "IA indisponível — despacho com gravidade padrão 3",
+                "origem": "fallback",
+            }
+    else:
+        triagem_info = {
+            "gravidade": gravidade,
+            "recurso_sugerido": TIPO_EMERGENCIA_PARA_RECURSO.get(dados.tipo, dados.tipo),
+            "briefing": "",
+            "origem": "manual",
+        }
+
     emergencia = Emergencia(
-        lat=dados.lat, lon=dados.lon, tipo=dados.tipo, gravidade=dados.gravidade,
+        lat=dados.lat, lon=dados.lon, tipo=tipo, gravidade=gravidade,
         descricao=dados.descricao, id_usuario=usuario.id,
     )
     db.add(emergencia)
@@ -536,17 +588,40 @@ def criar_ocorrencia_manual(dados: OcorrenciaManualCreate, db: Session = Depends
     registrar_auditoria(
         db, f"operador:{dados.operador or 'nao_informado'}", "criar_ocorrencia_manual",
         "emergencia", emergencia.id,
-        f"tipo={dados.tipo} gravidade={dados.gravidade} "
-        f"solicitante={dados.nome_solicitante or '-'}",
+        f"tipo={tipo} gravidade={gravidade} solicitante={dados.nome_solicitante or '-'}",
     )
+    if triagem_info["origem"] == "ia":
+        registrar_auditoria(
+            db, "sistema", "triagem_ia", "emergencia", emergencia.id,
+            f"G{triagem_info['gravidade']} · {triagem_info['recurso_sugerido']} · "
+            f"{triagem_info['briefing'][:120]}",
+        )
+    elif triagem_info["origem"] == "fallback":
+        registrar_auditoria(
+            db, "sistema", "triagem_ia_fallback", "emergencia", emergencia.id,
+            "IA indisponível — despacho com gravidade padrão 3",
+        )
 
+    despacho_info = None
     try:
-        _executar_despacho(emergencia, db)
+        resultado_despacho = _executar_despacho(emergencia, db, briefing=triagem_info.get("briefing") or None)
         db.refresh(emergencia)
+        if resultado_despacho:
+            _, melhor_agente, menor_distancia = resultado_despacho
+            despacho_info = {
+                "agente_nome": melhor_agente.nome,
+                "tipo_recurso": melhor_agente.tipo_recurso,
+                "distancia_km": round(menor_distancia, 2),
+            }
     except Exception:
         pass
 
-    return emergencia
+    return OcorrenciaManualResponse(
+        id=emergencia.id, lat=emergencia.lat, lon=emergencia.lon, tipo=emergencia.tipo,
+        gravidade=emergencia.gravidade, status=emergencia.status, id_usuario=emergencia.id_usuario,
+        created_at=emergencia.created_at, descricao=emergencia.descricao,
+        triagem=triagem_info, despacho=despacho_info,
+    )
 
 
 # ──────────────────────────── GET /auditoria ──────────────────────
@@ -697,56 +772,68 @@ Criterios de recurso:
 - bombeiro: incendios, salvamentos, desastres naturais"""
 
 
-@app.post("/triagem", response_model=TriagemResponse, dependencies=[Depends(verificar_api_key)])
-def triagem_ia(dados: TriagemRequest):
+def _chamar_ia_triagem(tipo: str, descricao: str, lat: float, lon: float) -> dict:
+    """Chama a IA de triagem e retorna o dict parseado ({gravidade, recurso_sugerido, briefing}).
+    Pode levantar excecao (sem API key, JSON invalido, erro da API Claude) — quem precisa
+    de uma chamada que nunca falha usa `_triar_com_ia`."""
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="ANTHROPIC_API_KEY nao configurada no servidor",
-        )
+        raise RuntimeError("ANTHROPIC_API_KEY nao configurada no servidor")
 
     client = anthropic.Anthropic(api_key=api_key)
 
     user_message = (
-        f"Tipo: {dados.tipo}\n"
-        f"Localizacao: lat={dados.latitude}, lon={dados.longitude}\n"
-        f"Horario: {dados.horario}\n"
-        f"Descricao: {dados.descricao}"
+        f"Tipo: {tipo}\n"
+        f"Localizacao: lat={lat}, lon={lon}\n"
+        f"Horario: {datetime.now(timezone.utc).isoformat()}\n"
+        f"Descricao: {descricao}"
     )
 
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        system=TRIAGEM_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    raw_text = next((b.text for b in response.content if b.type == "text"), "")
+    resultado = json.loads(raw_text)
+
+    return {
+        "gravidade": resultado["gravidade"],
+        "recurso_sugerido": resultado["recurso_sugerido"],
+        "briefing": resultado["briefing"],
+    }
+
+
+def _triar_com_ia(tipo: str, descricao: str, lat: float, lon: float) -> Optional[dict]:
+    """Wrapper que nunca levanta excecao — usado no fluxo de despacho, onde a IA
+    indisponivel nao pode travar a criacao da ocorrencia."""
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            system=TRIAGEM_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        return _chamar_ia_triagem(tipo, descricao, lat, lon)
+    except Exception:
+        return None
 
-        raw_text = next(
-            (b.text for b in response.content if b.type == "text"), ""
-        )
-        resultado = json.loads(raw_text)
 
-        return TriagemResponse(
-            gravidade=resultado["gravidade"],
-            recurso_sugerido=resultado["recurso_sugerido"],
-            briefing=resultado["briefing"],
-            tipo=dados.tipo,
-            latitude=dados.latitude,
-            longitude=dados.longitude,
-        )
-
+@app.post("/triagem", response_model=TriagemResponse, dependencies=[Depends(verificar_api_key)])
+def triagem_ia(dados: TriagemRequest):
+    try:
+        resultado = _chamar_ia_triagem(dados.tipo, dados.descricao, dados.latitude, dados.longitude)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Resposta da IA nao e JSON valido: {raw_text}",
-        )
+        raise HTTPException(status_code=502, detail="Resposta da IA nao e JSON valido")
     except anthropic.APIError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erro na API Claude: {e.message}",
-        )
+        raise HTTPException(status_code=502, detail=f"Erro na API Claude: {e.message}")
+
+    return TriagemResponse(
+        gravidade=resultado["gravidade"],
+        recurso_sugerido=resultado["recurso_sugerido"],
+        briefing=resultado["briefing"],
+        tipo=dados.tipo,
+        latitude=dados.latitude,
+        longitude=dados.longitude,
+    )
 
 
 # ──────────────────────────── Dashboard estático ──────────────────
