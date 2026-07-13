@@ -26,7 +26,7 @@ class EmergenciaCreate(BaseModel):
     lat: float
     lon: float
     tipo: str
-    gravidade: int
+    gravidade: Optional[int] = None
     id_usuario: int
     descricao: Optional[str] = None
 
@@ -110,6 +110,9 @@ class PosicaoResponse(BaseModel):
 # --- Acompanhamento ---
 class AcompanhamentoResponse(BaseModel):
     status: str
+    tipo: Optional[str] = None
+    gravidade: Optional[int] = None
+    descricao: Optional[str] = None
     despacho_id: Optional[int] = None
     agente_nome: Optional[str] = None
     tipo_recurso: Optional[str] = None

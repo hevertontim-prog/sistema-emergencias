@@ -21,6 +21,16 @@ const TIPO_ICON: Record<string, string> = {
   bombeiro:   '🚒',
 };
 
+const TIPO_LABEL: Record<string, string> = {
+  policia:  'Polícia',
+  medica:   'Médica',
+  bombeiro: 'Bombeiro',
+};
+
+const GRAVIDADE_COR: Record<number, string> = {
+  1: '#10b981', 2: '#10b981', 3: '#f59e0b', 4: '#ef4444', 5: '#ef4444',
+};
+
 function formatEta(segundos: number): string {
   if (segundos <= 0) return 'Chegando agora!';
   const min = Math.floor(segundos / 60);
@@ -151,6 +161,16 @@ export default function AcompanhamentoScreen({ route, navigation }: Props) {
       <Text style={styles.title}>Acompanhamento</Text>
       <Text style={styles.protocolo}>Protocolo #{emergenciaId}</Text>
 
+      {dados?.gravidade != null && (
+        <Text style={[styles.prioridade, { color: GRAVIDADE_COR[dados.gravidade] || colors.textSecondary }]}>
+          Prioridade G{dados.gravidade}
+          {dados.tipo ? ` · ${TIPO_LABEL[dados.tipo] || dados.tipo} a caminho` : ''}
+        </Text>
+      )}
+      {!!dados?.descricao && (
+        <Text style={styles.descricaoResumo}>"{dados.descricao}"</Text>
+      )}
+
       <View style={[styles.badge, { backgroundColor: info.color }]}>
         <Text style={styles.badgeText}>{info.label}</Text>
       </View>
@@ -205,6 +225,8 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingTop: 50, paddingBottom: 40 },
   title: { color: colors.text, fontSize: 24, fontWeight: 'bold' },
   protocolo: { color: colors.textSecondary, fontSize: 16, marginTop: 4 },
+  prioridade: { fontSize: 14, fontWeight: 'bold', marginTop: 10 },
+  descricaoResumo: { color: colors.textSecondary, fontSize: 13, fontStyle: 'italic', marginTop: 4 },
   badge: {
     alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 8,
     borderRadius: 20, marginTop: 16,

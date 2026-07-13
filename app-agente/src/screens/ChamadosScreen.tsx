@@ -18,6 +18,8 @@ type Chamado = {
   lat: number;
   lon: number;
   tipo: string;
+  gravidade?: number;
+  descricao?: string;
 };
 
 export default function ChamadosScreen({ route, navigation }: Props) {
@@ -66,6 +68,8 @@ export default function ChamadosScreen({ route, navigation }: Props) {
             lat: em.lat ?? em.latitude,
             lon: em.lon ?? em.longitude,
             tipo: em.tipo || 'emergencia',
+            gravidade: em.gravidade,
+            descricao: em.descricao,
           });
         } catch {}
       }
@@ -83,6 +87,9 @@ export default function ChamadosScreen({ route, navigation }: Props) {
       lat: item.lat,
       lon: item.lon,
       nome,
+      tipo: item.tipo,
+      gravidade: item.gravidade,
+      descricao: item.descricao,
     });
   }
 

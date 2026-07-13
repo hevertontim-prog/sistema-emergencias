@@ -204,7 +204,28 @@ def criar_emergencia(dados: EmergenciaCreate, db: Session = Depends(get_db)):
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
 
-    emergencia = Emergencia(**dados.model_dump())
+    tipo = dados.tipo
+    gravidade = dados.gravidade
+    briefing_triagem = None
+    origem_triagem = None
+
+    if dados.descricao and gravidade is None:
+        resultado_ia = _triar_com_ia(dados.tipo, dados.descricao, dados.lat, dados.lon)
+        if resultado_ia:
+            gravidade = resultado_ia["gravidade"]
+            tipo = RECURSO_IA_PARA_TIPO.get(resultado_ia["recurso_sugerido"], dados.tipo)
+            briefing_triagem = resultado_ia["briefing"]
+            origem_triagem = ("triagem_ia", resultado_ia)
+        else:
+            gravidade = 3
+            origem_triagem = ("triagem_ia_fallback", None)
+    elif gravidade is None:
+        gravidade = 3
+
+    emergencia = Emergencia(
+        lat=dados.lat, lon=dados.lon, tipo=tipo, gravidade=gravidade,
+        descricao=dados.descricao, id_usuario=dados.id_usuario,
+    )
     db.add(emergencia)
     db.commit()
     db.refresh(emergencia)
@@ -214,9 +235,23 @@ def criar_emergencia(dados: EmergenciaCreate, db: Session = Depends(get_db)):
         f"tipo={emergencia.tipo} gravidade={emergencia.gravidade}",
     )
 
+    if origem_triagem:
+        acao, resultado_ia = origem_triagem
+        if acao == "triagem_ia":
+            registrar_auditoria(
+                db, f"app_cidadao:{usuario.nome}", "triagem_ia", "emergencia", emergencia.id,
+                f"G{resultado_ia['gravidade']} · {resultado_ia['recurso_sugerido']} · "
+                f"{resultado_ia['briefing'][:120]}",
+            )
+        else:
+            registrar_auditoria(
+                db, f"app_cidadao:{usuario.nome}", "triagem_ia_fallback", "emergencia", emergencia.id,
+                "IA indisponível — despacho com gravidade padrão 3",
+            )
+
     # Auto-despacho: tenta atribuir agente mais proximo. Se nao houver, segue como aberta.
     try:
-        _executar_despacho(emergencia, db)
+        _executar_despacho(emergencia, db, briefing=briefing_triagem)
         db.refresh(emergencia)
     except Exception:
         pass
@@ -255,7 +290,10 @@ def acompanhamento_emergencia(emergencia_id: int, db: Session = Depends(get_db))
     )
 
     if not despacho:
-        return AcompanhamentoResponse(status=emergencia.status)
+        return AcompanhamentoResponse(
+            status=emergencia.status, tipo=emergencia.tipo,
+            gravidade=emergencia.gravidade, descricao=emergencia.descricao,
+        )
 
     agente = db.query(Agente).filter(Agente.id == despacho.id_agente).first()
     ultima_pos = (
@@ -276,6 +314,9 @@ def acompanhamento_emergencia(emergencia_id: int, db: Session = Depends(get_db))
 
     return AcompanhamentoResponse(
         status=emergencia.status,
+        tipo=emergencia.tipo,
+        gravidade=emergencia.gravidade,
+        descricao=emergencia.descricao,
         despacho_id=despacho.id,
         agente_nome=agente.nome if agente else None,
         tipo_recurso=agente.tipo_recurso if agente else None,

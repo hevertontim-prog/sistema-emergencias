@@ -20,6 +20,16 @@ const TIPO_ICON: Record<string, string> = {
   policia: '🚔', ambulancia: '🚑', bombeiro: '🚒',
 };
 
+// tipo aqui e o tipo da Emergencia (policia/medica/bombeiro), vocabulario
+// diferente do tipo_recurso do Agente (policia/ambulancia/bombeiro) usado acima.
+const CHAMADO_TIPO_ICON: Record<string, string> = {
+  policia: '🚔', medica: '🚑', bombeiro: '🚒',
+};
+
+const GRAVIDADE_COR: Record<number, string> = {
+  1: '#10b981', 2: '#10b981', 3: '#f59e0b', 4: '#ef4444', 5: '#ef4444',
+};
+
 function formatEta(segundos: number): string {
   if (segundos <= 0) return 'Chegando!';
   const min = Math.floor(segundos / 60);
@@ -99,7 +109,10 @@ window.addEventListener('message',function(e){
 }
 
 export default function AtendimentoScreen({ route, navigation }: Props) {
-  const { despachoId, emergenciaId, agenteId, lat, lon, nome } = route.params;
+  const {
+    despachoId, emergenciaId, agenteId, lat, lon, nome,
+    tipo: tipoParam, gravidade: gravidadeParam, descricao: descricaoParam,
+  } = route.params;
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [triagem, setTriagem] = useState<string | null>(null);
@@ -181,10 +194,37 @@ export default function AtendimentoScreen({ route, navigation }: Props) {
   const step = STEPS[currentStep];
   const tipoIcon = TIPO_ICON[dados?.tipo_recurso || ''] || '🚨';
 
+  // enquanto o poll de acompanhamento nao responde, usa os params da navegacao
+  // pra nao abrir a tela vazia (fallback do C3)
+  const chamadoTipo = dados?.tipo ?? tipoParam;
+  const chamadoGravidade = dados?.gravidade ?? gravidadeParam;
+  const chamadoDescricao = dados?.descricao ?? descricaoParam;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       <Text style={styles.title}>Atendimento</Text>
       <Text style={styles.protocolo}>Despacho #{despachoId} · Ocorrência #{emergenciaId}</Text>
+
+      {/* Card com informacao completa do chamado */}
+      {(chamadoTipo || chamadoGravidade != null || chamadoDescricao) && (
+        <View style={styles.chamadoCard}>
+          <View style={styles.chamadoHeader}>
+            <Text style={styles.chamadoTipoIcon}>
+              {CHAMADO_TIPO_ICON[chamadoTipo || ''] || '🚨'}
+            </Text>
+            {chamadoGravidade != null && (
+              <View style={[styles.gravidadeBadge, { backgroundColor: GRAVIDADE_COR[chamadoGravidade] || colors.warning }]}>
+                <Text style={styles.gravidadeBadgeText}>G{chamadoGravidade}</Text>
+              </View>
+            )}
+          </View>
+          {chamadoDescricao ? (
+            <Text style={styles.chamadoDescricao}>"{chamadoDescricao}"</Text>
+          ) : (
+            <Text style={styles.chamadoDescricaoVazia}>Sem descrição informada</Text>
+          )}
+        </View>
+      )}
 
       {/* ETA para o agente */}
       {dados?.eta_segundos !== null && dados?.eta_segundos !== undefined && (
@@ -252,6 +292,16 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background, padding: 20, paddingTop: 50 },
   title: { color: colors.text, fontSize: 24, fontWeight: 'bold' },
   protocolo: { color: colors.textSecondary, fontSize: 13, marginTop: 2 },
+  chamadoCard: {
+    backgroundColor: colors.surface, borderRadius: 14, padding: 16,
+    marginTop: 16, borderWidth: 1, borderColor: '#1e293b',
+  },
+  chamadoHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  chamadoTipoIcon: { fontSize: 28 },
+  gravidadeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  gravidadeBadgeText: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
+  chamadoDescricao: { color: colors.text, fontSize: 15, marginTop: 10, lineHeight: 21, fontStyle: 'italic' },
+  chamadoDescricaoVazia: { color: colors.textSecondary, fontSize: 13, marginTop: 10, fontStyle: 'italic' },
   etaBox: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: colors.surface, borderRadius: 14, padding: 14,

@@ -17,6 +17,7 @@ export interface EmergenciaResponse {
   status: string;
   id_usuario: number;
   created_at: string;
+  descricao?: string | null;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -42,12 +43,19 @@ export function criarEmergencia(
   lat: number,
   lon: number,
   tipo: string,
-  gravidade: number,
   id_usuario: number,
+  descricao?: string,
 ) {
+  const body: Record<string, unknown> = { lat, lon, tipo, id_usuario };
+  if (descricao) {
+    body.descricao = descricao;
+    // sem gravidade — o backend tria pela descricao (com fallback G3 se a IA falhar)
+  } else {
+    body.gravidade = 3;
+  }
   return request<EmergenciaResponse>('/emergencia', {
     method: 'POST',
-    body: JSON.stringify({ lat, lon, tipo, gravidade, id_usuario }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -75,6 +83,9 @@ export async function buscarFrota() {
 
 export interface AcompanhamentoData {
   status: string;
+  tipo?: string | null;
+  gravidade?: number | null;
+  descricao?: string | null;
   despacho_id: number | null;
   agente_nome: string | null;
   tipo_recurso: string | null;

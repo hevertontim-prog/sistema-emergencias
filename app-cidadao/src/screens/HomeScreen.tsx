@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -48,6 +49,7 @@ const TIPOS = [
 export default function HomeScreen({ route, navigation }: Props) {
   const { cpf, nome, userId } = route.params;
   const [loading, setLoading] = useState<string | null>(null);
+  const [descricao, setDescricao] = useState('');
   const [lastEmergencia, setLastEmergencia] = useState<{
     id: number;
     status: string;
@@ -82,7 +84,7 @@ export default function HomeScreen({ route, navigation }: Props) {
         }
       }
 
-      const emergencia = await criarEmergencia(lat, lon, tipo, 3, userId);
+      const emergencia = await criarEmergencia(lat, lon, tipo, userId, descricao.trim() || undefined);
       setLastEmergencia({ id: emergencia.id, status: emergencia.status, lat, lon, tipo });
 
       navigation.navigate('Acompanhamento', {
@@ -108,6 +110,26 @@ export default function HomeScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.center}>
+        <View style={styles.descricaoBlock}>
+          <Text style={styles.descricaoLabel}>O que está acontecendo?</Text>
+          <View style={styles.descricaoRow}>
+            <TextInput
+              style={styles.descricaoInput}
+              placeholder="Descreva em poucas palavras — ajuda a IA a priorizar seu atendimento"
+              placeholderTextColor={colors.textSecondary}
+              value={descricao}
+              onChangeText={(v) => setDescricao(v.slice(0, 300))}
+              maxLength={300}
+              multiline
+              numberOfLines={3}
+            />
+            <View style={styles.micButton}>
+              <Text style={styles.micIcon}>🎤</Text>
+            </View>
+          </View>
+          <Text style={styles.micHint}>áudio: em breve</Text>
+        </View>
+
         <Text style={styles.instruction}>Selecione o tipo de emergência</Text>
 
         <View style={styles.buttonsRow}>
@@ -209,6 +231,56 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: 32,
+  },
+  descricaoBlock: {
+    width: '100%',
+    maxWidth: 420,
+    marginBottom: 24,
+  },
+  descricaoLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  descricaoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  descricaoInput: {
+    flex: 1,
+    backgroundColor: colors.inputBg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 14,
+    color: colors.text,
+    fontSize: 14,
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  micButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    opacity: 0.4,
+  },
+  micIcon: {
+    fontSize: 18,
+  },
+  micHint: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    textAlign: 'right',
+    marginTop: 4,
   },
   buttonsRow: {
     flexDirection: 'row',

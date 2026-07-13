@@ -44,6 +44,9 @@ export async function buscarTriagem(descricao: string) {
 
 export interface AcompanhamentoData {
   status: string;
+  tipo?: string | null;
+  gravidade?: number | null;
+  descricao?: string | null;
   despacho_id: number | null;
   agente_nome: string | null;
   tipo_recurso: string | null;
