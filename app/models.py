@@ -72,6 +72,16 @@ class Despacho(Base):
     agente = relationship("Agente", back_populates="despachos")
 
 
+class Operador(Base):
+    __tablename__ = "operadores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), nullable=False)
+    matricula = Column(String(20), unique=True, nullable=False)
+    ativo = Column(Integer, default=1)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 

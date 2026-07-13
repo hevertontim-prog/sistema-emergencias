@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app.database import engine, get_db, Base
-from app.models import Emergencia, Agente, Usuario, Despacho, PosicaoGPS, AuditLog
+from app.models import Emergencia, Agente, Usuario, Despacho, PosicaoGPS, AuditLog, Operador, Viatura
 from app.schemas import (
     UsuarioCreate, UsuarioResponse, PushTokenUpdate,
     EmergenciaCreate, EmergenciaResponse,
@@ -26,6 +26,8 @@ from app.schemas import (
     PosicaoCreate, PosicaoResponse,
     TriagemRequest, TriagemResponse,
     OcorrenciaManualCreate, AuditLogResponse,
+    AgenteCreate, AgenteResponse, ViaturaCreate, ViaturaResponse,
+    OperadorCreate, OperadorResponse,
 )
 
 Base.metadata.create_all(bind=engine)
@@ -558,6 +560,102 @@ def listar_auditoria(limit: int = 100, db: Session = Depends(get_db)):
         .limit(limit)
         .all()
     )
+
+
+# ──────────────────────────── Cadastros ───────────────────────────
+
+TIPOS_RECURSO_VALIDOS = {"policia", "ambulancia", "bombeiro"}
+
+def _ator_operador(x_operador: str = None) -> str:
+    return f"operador:{x_operador or 'nao_informado'}"
+
+
+@app.post("/agentes", response_model=AgenteResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
+def cadastrar_agente(dados: AgenteCreate, db: Session = Depends(get_db),
+                     x_operador: str = Header(None)):
+    """Cadastra agente (e opcionalmente a viatura junto). Sem lat/lon o agente
+    fica sem posicao GPS e NAO e escolhido pelo despacho automatico."""
+    if dados.tipo_recurso not in TIPOS_RECURSO_VALIDOS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"tipo_recurso invalido. Valores aceitos: {', '.join(sorted(TIPOS_RECURSO_VALIDOS))}",
+        )
+    if db.query(Agente).filter(Agente.matricula == dados.matricula).first():
+        raise HTTPException(status_code=409, detail="Matricula ja cadastrada")
+    if dados.placa_viatura and db.query(Viatura).filter(Viatura.placa == dados.placa_viatura).first():
+        raise HTTPException(status_code=409, detail="Placa ja cadastrada")
+
+    agente = Agente(nome=dados.nome, matricula=dados.matricula,
+                    tipo_recurso=dados.tipo_recurso, status="disponivel")
+    db.add(agente)
+    db.commit()
+    db.refresh(agente)
+
+    if dados.lat is not None and dados.lon is not None:
+        db.add(PosicaoGPS(id_agente=agente.id, lat=dados.lat, lon=dados.lon))
+        db.commit()
+
+    if dados.placa_viatura:
+        db.add(Viatura(placa=dados.placa_viatura,
+                       tipo=dados.tipo_viatura or dados.tipo_recurso,
+                       id_agente=agente.id))
+        db.commit()
+
+    registrar_auditoria(
+        db, _ator_operador(x_operador), "cadastrar_agente", "agente", agente.id,
+        f"nome={dados.nome} matricula={dados.matricula} tipo={dados.tipo_recurso} "
+        f"gps={'sim' if dados.lat is not None else 'nao'} viatura={dados.placa_viatura or '-'}",
+    )
+    return agente
+
+
+@app.get("/agentes", response_model=list[AgenteResponse])
+def listar_agentes(db: Session = Depends(get_db)):
+    return db.query(Agente).all()
+
+
+@app.post("/viaturas", response_model=ViaturaResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
+def cadastrar_viatura(dados: ViaturaCreate, db: Session = Depends(get_db),
+                      x_operador: str = Header(None)):
+    agente = db.query(Agente).filter(Agente.id == dados.id_agente).first()
+    if not agente:
+        raise HTTPException(status_code=404, detail="Agente nao encontrado")
+    if db.query(Viatura).filter(Viatura.placa == dados.placa).first():
+        raise HTTPException(status_code=409, detail="Placa ja cadastrada")
+
+    viatura = Viatura(placa=dados.placa, tipo=dados.tipo, id_agente=dados.id_agente)
+    db.add(viatura)
+    db.commit()
+    db.refresh(viatura)
+
+    registrar_auditoria(
+        db, _ator_operador(x_operador), "cadastrar_viatura", "viatura", viatura.id,
+        f"placa={dados.placa} tipo={dados.tipo} agente={agente.nome}",
+    )
+    return viatura
+
+
+@app.post("/operadores", response_model=OperadorResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
+def cadastrar_operador(dados: OperadorCreate, db: Session = Depends(get_db),
+                       x_operador: str = Header(None)):
+    if db.query(Operador).filter(Operador.matricula == dados.matricula).first():
+        raise HTTPException(status_code=409, detail="Matricula ja cadastrada")
+
+    operador = Operador(nome=dados.nome, matricula=dados.matricula, ativo=1)
+    db.add(operador)
+    db.commit()
+    db.refresh(operador)
+
+    registrar_auditoria(
+        db, _ator_operador(x_operador), "cadastrar_operador", "operador", operador.id,
+        f"nome={dados.nome} matricula={dados.matricula}",
+    )
+    return operador
+
+
+@app.get("/operadores", response_model=list[OperadorResponse])
+def listar_operadores(db: Session = Depends(get_db)):
+    return db.query(Operador).filter(Operador.ativo == 1).all()
 
 
 # ──────────────────────────── POST /posicao ───────────────────────

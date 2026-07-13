@@ -179,6 +179,7 @@
     <div class="header-acoes">
       <button class="btn-acao" id="btn-nova-ocorrencia" onclick="abrirModalOcorrencia()">➕ Nova Ocorrência</button>
       <button class="btn-acao secundario" id="btn-auditoria" onclick="abrirModalAuditoria()">📜 Auditoria</button>
+      <button class="btn-acao secundario" id="btn-cadastros" onclick="abrirModalCadastros()">⚙️ Cadastros</button>
     </div>
     <div class="stats">
       <div class="stat danger">
@@ -243,7 +244,8 @@
       </div>
       <div>
         <label>Operador</label>
-        <input id="oc-operador" placeholder="Seu nome">
+        <input id="oc-operador" placeholder="Seu nome" list="lista-operadores">
+        <datalist id="lista-operadores"></datalist>
       </div>
     </div>
     <div class="aviso-endereco" id="oc-endereco"></div>
@@ -284,6 +286,85 @@
       <button class="btn-acao secundario" id="oc-btn-triar" onclick="triarComIA()">🤖 Triar com IA</button>
       <button class="btn-acao" id="oc-btn-confirmar" onclick="confirmarOcorrencia()">✅ Confirmar</button>
     </div>
+  </div>
+</div>
+
+<!-- Modal: Cadastros -->
+<div class="modal-bg" id="modal-cadastros" onclick="if(event.target===this)this.classList.remove('aberto')">
+  <div class="modal" style="width:440px">
+    <button class="modal-fechar" onclick="document.getElementById('modal-cadastros').classList.remove('aberto')">✕</button>
+    <h2>⚙️ Cadastros <small>Agente, viatura e operador da central</small></h2>
+
+    <label>Chave API</label>
+    <input id="cad-key" type="password" placeholder="x-api-key">
+
+    <h2 style="margin-top:18px;font-size:13px">🧑‍🚒 Agente + Viatura</h2>
+    <div class="linha">
+      <div>
+        <label>Nome</label>
+        <input id="ag-nome" placeholder="Nome do agente">
+      </div>
+      <div>
+        <label>Matrícula</label>
+        <input id="ag-matricula" placeholder="PM003">
+      </div>
+    </div>
+    <div class="linha">
+      <div>
+        <label>Tipo de recurso</label>
+        <select id="ag-tipo">
+          <option value="policia">🚔 Polícia</option>
+          <option value="ambulancia">🚑 Ambulância</option>
+          <option value="bombeiro">🚒 Bombeiro</option>
+        </select>
+      </div>
+      <div>
+        <label>Posição inicial</label>
+        <select id="ag-posicao">
+          <option value="centro">Usar centro do mapa atual</option>
+          <option value="sem">Sem posição (fora do despacho)</option>
+        </select>
+      </div>
+    </div>
+    <div class="linha">
+      <div>
+        <label>Placa (opcional)</label>
+        <input id="ag-placa" placeholder="ABC1D23">
+      </div>
+      <div>
+        <label>Tipo da viatura (opcional)</label>
+        <input id="ag-tipo-viatura" placeholder="default = tipo do recurso">
+      </div>
+    </div>
+    <div class="acoes"><button class="btn-acao" onclick="cadastrarAgente()">➕ Cadastrar agente</button></div>
+
+    <h2 style="margin-top:18px;font-size:13px">🚗 Viatura avulsa</h2>
+    <label>Agente</label>
+    <select id="vt-agente"></select>
+    <div class="linha">
+      <div>
+        <label>Placa</label>
+        <input id="vt-placa" placeholder="ABC1D23">
+      </div>
+      <div>
+        <label>Tipo</label>
+        <input id="vt-tipo" placeholder="carro, moto...">
+      </div>
+    </div>
+    <div class="acoes"><button class="btn-acao" onclick="cadastrarViatura()">➕ Cadastrar viatura</button></div>
+
+    <h2 style="margin-top:18px;font-size:13px">🎧 Operador</h2>
+    <div class="linha">
+      <div>
+        <label>Nome</label>
+        <input id="op-nome" placeholder="Nome do operador">
+      </div>
+      <div>
+        <label>Matrícula</label>
+        <input id="op-matricula" placeholder="OP01">
+      </div>
+    </div>
+    <div class="acoes"><button class="btn-acao" onclick="cadastrarOperador()">➕ Cadastrar operador</button></div>
   </div>
 </div>
 
@@ -616,6 +697,104 @@ async function confirmarOcorrencia() {
     btn.disabled = false; btn.textContent = '✅ Confirmar';
   }
 }
+
+// ──────────────── Cadastros ────────────────
+
+function headersCadastro() {
+  const key = document.getElementById('cad-key').value.trim();
+  if (!key) { alert('Informe a chave API.'); return null; }
+  sessionStorage.setItem('salvai_key', key);
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': key,
+    'x-operador': sessionStorage.getItem('salvai_operador') || 'nao_informado',
+  };
+}
+
+async function postCadastro(path, body, okMsg) {
+  const headers = headersCadastro();
+  if (!headers) return false;
+  try {
+    const r = await fetch(API_URL + path, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    alert(okMsg);
+    refresh();
+    return true;
+  } catch (e) {
+    alert('Falha no cadastro: ' + e.message);
+    return false;
+  }
+}
+
+async function abrirModalCadastros() {
+  document.getElementById('cad-key').value = sessionStorage.getItem('salvai_key') || '';
+  document.getElementById('modal-cadastros').classList.add('aberto');
+  carregarAgentesSelect();
+}
+
+async function carregarAgentesSelect() {
+  try {
+    const agentes = await fetchJSON('/agentes');
+    document.getElementById('vt-agente').innerHTML = agentes.map(a =>
+      `<option value="${a.id}">#${a.id} · ${a.nome} (${a.tipo_recurso})</option>`
+    ).join('');
+  } catch (e) { /* backend fora — selects ficam vazios */ }
+}
+
+async function cadastrarAgente() {
+  const nome = document.getElementById('ag-nome').value.trim();
+  const matricula = document.getElementById('ag-matricula').value.trim();
+  if (!nome || !matricula) { alert('Nome e matrícula são obrigatórios.'); return; }
+  const body = {
+    nome, matricula,
+    tipo_recurso: document.getElementById('ag-tipo').value,
+    placa_viatura: document.getElementById('ag-placa').value.trim() || null,
+    tipo_viatura: document.getElementById('ag-tipo-viatura').value.trim() || null,
+  };
+  if (document.getElementById('ag-posicao').value === 'centro') {
+    const c = map.getCenter();
+    body.lat = c.lat; body.lon = c.lng;
+  }
+  if (await postCadastro('/agentes', body, `Agente ${nome} cadastrado!`)) {
+    document.getElementById('ag-nome').value = '';
+    document.getElementById('ag-matricula').value = '';
+    document.getElementById('ag-placa').value = '';
+    document.getElementById('ag-tipo-viatura').value = '';
+    carregarAgentesSelect();
+  }
+}
+
+async function cadastrarViatura() {
+  const placa = document.getElementById('vt-placa').value.trim();
+  const tipo = document.getElementById('vt-tipo').value.trim();
+  const id_agente = parseInt(document.getElementById('vt-agente').value);
+  if (!placa || !tipo || !id_agente) { alert('Agente, placa e tipo são obrigatórios.'); return; }
+  if (await postCadastro('/viaturas', { placa, tipo, id_agente }, `Viatura ${placa} cadastrada!`)) {
+    document.getElementById('vt-placa').value = '';
+    document.getElementById('vt-tipo').value = '';
+  }
+}
+
+async function cadastrarOperador() {
+  const nome = document.getElementById('op-nome').value.trim();
+  const matricula = document.getElementById('op-matricula').value.trim();
+  if (!nome || !matricula) { alert('Nome e matrícula são obrigatórios.'); return; }
+  if (await postCadastro('/operadores', { nome, matricula }, `Operador ${nome} cadastrado!`)) {
+    document.getElementById('op-nome').value = '';
+    document.getElementById('op-matricula').value = '';
+    carregarOperadoresDatalist();
+  }
+}
+
+// datalist do campo operador no modal Nova Ocorrência (fallback: texto livre)
+async function carregarOperadoresDatalist() {
+  try {
+    const ops = await fetchJSON('/operadores');
+    document.getElementById('lista-operadores').innerHTML =
+      ops.map(o => `<option value="${o.nome}">`).join('');
+  } catch (e) { /* texto livre continua aceito */ }
+}
+carregarOperadoresDatalist();
 
 // ──────────────── Auditoria ────────────────
 

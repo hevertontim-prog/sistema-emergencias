@@ -119,6 +119,56 @@ class AcompanhamentoResponse(BaseModel):
     distancia_km: Optional[float] = None
 
 
+# --- Cadastros (agente, viatura, operador) ---
+class AgenteCreate(BaseModel):
+    nome: str
+    matricula: str
+    tipo_recurso: str
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    placa_viatura: Optional[str] = None
+    tipo_viatura: Optional[str] = None
+
+
+class AgenteResponse(BaseModel):
+    id: int
+    nome: str
+    matricula: str
+    tipo_recurso: str
+    status: str
+
+    model_config = {"from_attributes": True}
+
+
+class ViaturaCreate(BaseModel):
+    placa: str
+    tipo: str
+    id_agente: int
+
+
+class ViaturaResponse(BaseModel):
+    id: int
+    placa: str
+    tipo: str
+    id_agente: int
+
+    model_config = {"from_attributes": True}
+
+
+class OperadorCreate(BaseModel):
+    nome: str
+    matricula: str
+
+
+class OperadorResponse(BaseModel):
+    id: int
+    nome: str
+    matricula: str
+    ativo: int
+
+    model_config = {"from_attributes": True}
+
+
 # --- Ocorrencia manual (modo operador) ---
 class OcorrenciaManualCreate(BaseModel):
     tipo: str
