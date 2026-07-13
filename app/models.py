@@ -72,6 +72,18 @@ class Despacho(Base):
     agente = relationship("Agente", back_populates="despachos")
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ator = Column(String(100), nullable=False)
+    acao = Column(String(50), nullable=False)
+    entidade = Column(String(50), nullable=True)
+    entidade_id = Column(Integer, nullable=True)
+    detalhe = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class PosicaoGPS(Base):
     __tablename__ = "posicoes_gps"
 

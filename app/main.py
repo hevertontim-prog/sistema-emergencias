@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app.database import engine, get_db, Base
-from app.models import Emergencia, Agente, Usuario, Despacho, PosicaoGPS
+from app.models import Emergencia, Agente, Usuario, Despacho, PosicaoGPS, AuditLog
 from app.schemas import (
     UsuarioCreate, UsuarioResponse, PushTokenUpdate,
     EmergenciaCreate, EmergenciaResponse,
@@ -25,6 +25,7 @@ from app.schemas import (
     DespachoCreate, DespachoResponse, DespachoStatusUpdate,
     PosicaoCreate, PosicaoResponse,
     TriagemRequest, TriagemResponse,
+    OcorrenciaManualCreate, AuditLogResponse,
 )
 
 Base.metadata.create_all(bind=engine)
@@ -113,6 +114,17 @@ def enviar_push(token: str, title: str, body: str):
         pass
 
 
+def registrar_auditoria(db: Session, ator: str, acao: str, entidade: str = None,
+                        entidade_id: int = None, detalhe: str = None):
+    """Grava um evento na trilha de auditoria. Nunca derruba a operacao principal."""
+    try:
+        db.add(AuditLog(ator=ator, acao=acao, entidade=entidade,
+                        entidade_id=entidade_id, detalhe=detalhe))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Retorna a distancia em km entre dois pontos (lat/lon) usando Haversine."""
     R = 6371.0  # raio da Terra em km
@@ -161,6 +173,11 @@ def criar_emergencia(dados: EmergenciaCreate, db: Session = Depends(get_db)):
     db.add(emergencia)
     db.commit()
     db.refresh(emergencia)
+
+    registrar_auditoria(
+        db, f"cidadao:{usuario.nome}", "criar_emergencia", "emergencia", emergencia.id,
+        f"tipo={emergencia.tipo} gravidade={emergencia.gravidade}",
+    )
 
     # Auto-despacho: tenta atribuir agente mais proximo. Se nao houver, segue como aberta.
     try:
@@ -314,6 +331,8 @@ def listar_emergencias(limit: int = 50, db: Session = Depends(get_db)):
 TIPO_EMERGENCIA_PARA_RECURSO = {
     "policia": "policia",
     "medica": "ambulancia",
+    "bombeiro": "bombeiro",
+    "incendio": "bombeiro",
 }
 
 def _executar_despacho(emergencia: Emergencia, db: Session) -> Optional[Tuple[Despacho, Agente, float]]:
@@ -367,6 +386,12 @@ def _executar_despacho(emergencia: Emergencia, db: Session) -> Optional[Tuple[De
     db.add(despacho)
     db.commit()
     db.refresh(despacho)
+
+    registrar_auditoria(
+        db, "sistema", "despacho_automatico", "despacho", despacho.id,
+        f"agente={melhor_agente.nome} ({melhor_agente.tipo_recurso}) -> "
+        f"emergencia #{emergencia.id} ({round(menor_distancia, 2)} km)",
+    )
 
     # Inicia simulação de movimento do agente
     ultima_pos_agente = (
@@ -462,6 +487,11 @@ def atualizar_status_despacho(
 
     db.commit()
 
+    registrar_auditoria(
+        db, f"agente:{despacho.id_agente}", "atualizar_status_despacho",
+        "despacho", despacho.id, f"status={dados.status}",
+    )
+
     # Push notification para o cidadao
     emergencia = db.query(Emergencia).filter(Emergencia.id == despacho.id_emergencia).first()
     if emergencia:
@@ -476,6 +506,58 @@ def atualizar_status_despacho(
             enviar_push(usuario.push_token, title, body)
     db.refresh(despacho)
     return despacho
+
+
+# ──────────────────────────── POST /ocorrencias/manual ────────────
+
+CPF_ENTRADA_MANUAL = "00000000000"
+
+@app.post("/ocorrencias/manual", response_model=EmergenciaResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
+def criar_ocorrencia_manual(dados: OcorrenciaManualCreate, db: Session = Depends(get_db)):
+    """Entrada manual de ocorrencia pelo operador da central (telefone/radio).
+    Vincula ao usuario sentinela 'Entrada Manual' e dispara o despacho automatico."""
+    usuario = db.query(Usuario).filter(Usuario.cpf == CPF_ENTRADA_MANUAL).first()
+    if not usuario:
+        usuario = Usuario(cpf=CPF_ENTRADA_MANUAL, nome="Entrada Manual")
+        db.add(usuario)
+        db.commit()
+        db.refresh(usuario)
+
+    emergencia = Emergencia(
+        lat=dados.lat, lon=dados.lon, tipo=dados.tipo, gravidade=dados.gravidade,
+        descricao=dados.descricao, id_usuario=usuario.id,
+    )
+    db.add(emergencia)
+    db.commit()
+    db.refresh(emergencia)
+
+    registrar_auditoria(
+        db, f"operador:{dados.operador or 'nao_informado'}", "criar_ocorrencia_manual",
+        "emergencia", emergencia.id,
+        f"tipo={dados.tipo} gravidade={dados.gravidade} "
+        f"solicitante={dados.nome_solicitante or '-'}",
+    )
+
+    try:
+        _executar_despacho(emergencia, db)
+        db.refresh(emergencia)
+    except Exception:
+        pass
+
+    return emergencia
+
+
+# ──────────────────────────── GET /auditoria ──────────────────────
+
+@app.get("/auditoria", response_model=list[AuditLogResponse])
+def listar_auditoria(limit: int = 100, db: Session = Depends(get_db)):
+    """Trilha de auditoria (mais recentes primeiro)."""
+    return (
+        db.query(AuditLog)
+        .order_by(AuditLog.id.desc())
+        .limit(limit)
+        .all()
+    )
 
 
 # ──────────────────────────── POST /posicao ───────────────────────

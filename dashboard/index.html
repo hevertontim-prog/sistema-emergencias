@@ -114,6 +114,56 @@
   .leaflet-popup-content-wrapper { background: #1a1a2e; color: #fff; border-radius: 8px; }
   .leaflet-popup-tip { background: #1a1a2e; }
   .leaflet-popup-content { font-size: 12px; }
+
+  /* Botões de ação do header */
+  .header-acoes { display: flex; gap: 8px; }
+  .btn-acao {
+    background: #ef4444; color: #fff; border: none; border-radius: 10px;
+    padding: 10px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .btn-acao:hover { filter: brightness(1.15); }
+  .btn-acao.secundario { background: #252540; border: 1px solid #2a2a3e; }
+
+  /* Modais */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: none; align-items: center; justify-content: center; z-index: 2000;
+  }
+  .modal-bg.aberto { display: flex; }
+  /* variante flutuante: deixa o mapa clicável por trás (ajuste do pino) */
+  .modal-bg.flutuante { background: transparent; pointer-events: none; justify-content: flex-start; padding-left: 12px; }
+  .modal-bg.flutuante .modal { pointer-events: auto; }
+  .modal {
+    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px;
+    width: 400px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+    padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  }
+  .modal h2 { font-size: 15px; margin-bottom: 14px; }
+  .modal h2 small { color: #a0a0b0; font-weight: 400; font-size: 11px; display: block; margin-top: 2px; }
+  .modal label { display: block; font-size: 11px; color: #a0a0b0; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal input, .modal select, .modal textarea {
+    width: 100%; background: #16213e; border: 1px solid #2a2a3e; border-radius: 8px;
+    color: #fff; padding: 9px 10px; font-size: 13px;
+  }
+  .modal textarea { resize: vertical; min-height: 56px; }
+  .modal .linha { display: flex; gap: 8px; }
+  .modal .linha > div { flex: 1; }
+  .modal .acoes { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .acoes .btn-acao { flex: 1; }
+  .aviso-endereco { font-size: 11px; color: #10b981; margin-top: 4px; min-height: 14px; }
+  .briefing-ia {
+    background: #16213e; border-left: 4px solid #8b5cf6; border-radius: 8px;
+    padding: 10px; font-size: 12px; color: #d0d0e0; margin-top: 10px; display: none;
+  }
+  .modal-fechar { float: right; background: none; border: none; color: #a0a0b0; font-size: 18px; cursor: pointer; }
+
+  /* Auditoria */
+  .audit-item {
+    background: #16213e; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+    font-size: 12px; border-left: 3px solid #3b82f6;
+  }
+  .audit-item .audit-acao { font-weight: 700; }
+  .audit-item .audit-meta { color: #a0a0b0; font-size: 11px; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -125,6 +175,10 @@
         <h1>SalvAI · Painel do Gestor</h1>
         <span id="last-update">Aguardando dados...</span>
       </div>
+    </div>
+    <div class="header-acoes">
+      <button class="btn-acao" id="btn-nova-ocorrencia" onclick="abrirModalOcorrencia()">➕ Nova Ocorrência</button>
+      <button class="btn-acao secundario" id="btn-auditoria" onclick="abrirModalAuditoria()">📜 Auditoria</button>
     </div>
     <div class="stats">
       <div class="stat danger">
@@ -174,6 +228,72 @@
       <div class="panel-body" id="chamados-list"></div>
     </section>
   </main>
+</div>
+
+<!-- Modal: Nova Ocorrência (flutuante — mapa continua clicável para ajustar o pino) -->
+<div class="modal-bg flutuante" id="modal-ocorrencia">
+  <div class="modal">
+    <button class="modal-fechar" onclick="fecharModalOcorrencia()">✕</button>
+    <h2>➕ Nova Ocorrência <small>Digite o CEP para posicionar — clique no mapa para ajustar o pino</small></h2>
+
+    <div class="linha">
+      <div>
+        <label>CEP</label>
+        <input id="oc-cep" placeholder="00000-000" maxlength="9">
+      </div>
+      <div>
+        <label>Operador</label>
+        <input id="oc-operador" placeholder="Seu nome">
+      </div>
+    </div>
+    <div class="aviso-endereco" id="oc-endereco"></div>
+
+    <div class="linha">
+      <div>
+        <label>Tipo</label>
+        <select id="oc-tipo">
+          <option value="policia">🚔 Polícia</option>
+          <option value="medica">🚑 Médica</option>
+          <option value="bombeiro">🚒 Bombeiro</option>
+        </select>
+      </div>
+      <div>
+        <label>Gravidade</label>
+        <select id="oc-gravidade">
+          <option value="1">1 — Leve</option>
+          <option value="2">2 — Moderada</option>
+          <option value="3" selected>3 — Séria</option>
+          <option value="4">4 — Grave</option>
+          <option value="5">5 — Crítica</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Descrição</label>
+    <textarea id="oc-descricao" placeholder="Relato do solicitante"></textarea>
+
+    <label>Nome do solicitante</label>
+    <input id="oc-solicitante" placeholder="Quem ligou (opcional)">
+
+    <label>Chave API</label>
+    <input id="oc-key" type="password" placeholder="x-api-key">
+
+    <div class="briefing-ia" id="oc-briefing"></div>
+
+    <div class="acoes">
+      <button class="btn-acao secundario" id="oc-btn-triar" onclick="triarComIA()">🤖 Triar com IA</button>
+      <button class="btn-acao" id="oc-btn-confirmar" onclick="confirmarOcorrencia()">✅ Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Auditoria -->
+<div class="modal-bg" id="modal-auditoria" onclick="if(event.target===this)this.classList.remove('aberto')">
+  <div class="modal" style="width:560px">
+    <button class="modal-fechar" onclick="document.getElementById('modal-auditoria').classList.remove('aberto')">✕</button>
+    <h2>📜 Trilha de Auditoria <small>Últimos 100 eventos — quem fez o quê e quando</small></h2>
+    <div id="audit-list"></div>
+  </div>
 </div>
 
 <script>
@@ -357,6 +477,168 @@ function renderMapa(frota, ems) {
 
 refresh();
 setInterval(refresh, 3000);
+
+// ──────────────── Modo Operador: nova ocorrência manual ────────────────
+
+const RECURSO_IA_PARA_TIPO = { viatura_PM: 'policia', ambulancia_SAMU: 'medica', bombeiro: 'bombeiro' };
+let pinoOcorrencia = null;
+let modalOcorrenciaAberto = false;
+
+function setPino(lat, lon) {
+  if (pinoOcorrencia) {
+    pinoOcorrencia.setLatLng([lat, lon]);
+  } else {
+    pinoOcorrencia = L.marker([lat, lon], {
+      draggable: true,
+      icon: makeIcon('📍', '#ef4444'),
+    }).addTo(map).bindPopup('Local da ocorrência (arraste para ajustar)');
+  }
+}
+
+map.on('click', (e) => {
+  if (!modalOcorrenciaAberto) return;
+  setPino(e.latlng.lat, e.latlng.lng);
+  document.getElementById('oc-endereco').textContent =
+    `📍 Ajustado no mapa: ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+});
+
+function abrirModalOcorrencia() {
+  modalOcorrenciaAberto = true;
+  document.getElementById('oc-key').value = sessionStorage.getItem('salvai_key') || '';
+  document.getElementById('oc-operador').value = sessionStorage.getItem('salvai_operador') || '';
+  document.getElementById('modal-ocorrencia').classList.add('aberto');
+}
+
+function fecharModalOcorrencia() {
+  modalOcorrenciaAberto = false;
+  document.getElementById('modal-ocorrencia').classList.remove('aberto');
+  document.getElementById('oc-briefing').style.display = 'none';
+  if (pinoOcorrencia) { map.removeLayer(pinoOcorrencia); pinoOcorrencia = null; }
+}
+
+// CEP → ViaCEP → Nominatim → pino no mapa (1 chamada por CEP completo digitado)
+document.getElementById('oc-cep').addEventListener('input', async (ev) => {
+  const cep = ev.target.value.replace(/\D/g, '');
+  if (cep.length !== 8) return;
+  const avisoEl = document.getElementById('oc-endereco');
+  avisoEl.textContent = '🔎 Buscando endereço...';
+  try {
+    const via = await (await fetch(`https://viacep.com.br/ws/${cep}/json/`)).json();
+    if (via.erro) { avisoEl.textContent = '⚠️ CEP não encontrado'; return; }
+    const endereco = [via.logradouro, via.bairro, via.localidade, via.uf, 'Brasil']
+      .filter(Boolean).join(', ');
+    const nom = await (await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(endereco)}`
+    )).json();
+    if (!nom.length) { avisoEl.textContent = `⚠️ Endereço achado (${endereco}) mas sem coordenadas — clique no mapa`; return; }
+    const lat = parseFloat(nom[0].lat), lon = parseFloat(nom[0].lon);
+    setPino(lat, lon);
+    map.setView([lat, lon], 15);
+    avisoEl.textContent = `📍 ${endereco}`;
+  } catch (e) {
+    avisoEl.textContent = '⚠️ Erro ao buscar CEP — clique no mapa para posicionar';
+  }
+});
+
+function dadosOcorrencia() {
+  if (!pinoOcorrencia) { alert('Posicione o pino: digite um CEP ou clique no mapa.'); return null; }
+  const key = document.getElementById('oc-key').value.trim();
+  if (!key) { alert('Informe a chave API.'); return null; }
+  const operador = document.getElementById('oc-operador').value.trim();
+  sessionStorage.setItem('salvai_key', key);
+  sessionStorage.setItem('salvai_operador', operador);
+  const ll = pinoOcorrencia.getLatLng();
+  return {
+    key, operador,
+    tipo: document.getElementById('oc-tipo').value,
+    gravidade: parseInt(document.getElementById('oc-gravidade').value),
+    lat: ll.lat, lon: ll.lng,
+    descricao: document.getElementById('oc-descricao').value.trim(),
+    nome_solicitante: document.getElementById('oc-solicitante').value.trim(),
+  };
+}
+
+async function triarComIA() {
+  const d = dadosOcorrencia();
+  if (!d) return;
+  if (!d.descricao) { alert('Descreva a ocorrência para a IA triar.'); return; }
+  const btn = document.getElementById('oc-btn-triar');
+  btn.disabled = true; btn.textContent = '🤖 Triando...';
+  try {
+    const r = await fetch(API_URL + '/triagem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': d.key },
+      body: JSON.stringify({
+        tipo: d.tipo, latitude: d.lat, longitude: d.lon,
+        horario: new Date().toISOString(), descricao: d.descricao,
+      }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const t = await r.json();
+    document.getElementById('oc-gravidade').value = String(t.gravidade);
+    if (RECURSO_IA_PARA_TIPO[t.recurso_sugerido]) {
+      document.getElementById('oc-tipo').value = RECURSO_IA_PARA_TIPO[t.recurso_sugerido];
+    }
+    const bEl = document.getElementById('oc-briefing');
+    bEl.style.display = 'block';
+    bEl.textContent = `🤖 Gravidade ${t.gravidade} · ${t.recurso_sugerido} — ${t.briefing}`;
+  } catch (e) {
+    alert('Falha na triagem IA: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '🤖 Triar com IA';
+  }
+}
+
+async function confirmarOcorrencia() {
+  const d = dadosOcorrencia();
+  if (!d) return;
+  const btn = document.getElementById('oc-btn-confirmar');
+  btn.disabled = true; btn.textContent = '✅ Enviando...';
+  try {
+    const r = await fetch(API_URL + '/ocorrencias/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': d.key },
+      body: JSON.stringify({
+        tipo: d.tipo, gravidade: d.gravidade, lat: d.lat, lon: d.lon,
+        descricao: d.descricao || null,
+        nome_solicitante: d.nome_solicitante || null,
+        operador: d.operador || null,
+      }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    const oc = await r.json();
+    alert(`Ocorrência #${oc.id} registrada — status: ${oc.status}`);
+    fecharModalOcorrencia();
+    refresh();
+  } catch (e) {
+    alert('Falha ao registrar: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ Confirmar';
+  }
+}
+
+// ──────────────── Auditoria ────────────────
+
+async function abrirModalAuditoria() {
+  document.getElementById('modal-auditoria').classList.add('aberto');
+  const el = document.getElementById('audit-list');
+  el.innerHTML = '<div class="empty">Carregando...</div>';
+  try {
+    const logs = await fetchJSON('/auditoria');
+    if (!logs.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">📜</div>Nenhum evento ainda</div>'; return; }
+    el.innerHTML = logs.map(l => `
+      <div class="audit-item">
+        <span class="audit-acao">${l.acao}</span> — ${l.detalhe || ''}
+        <div class="audit-meta">
+          ${l.ator} · ${l.entidade ? `${l.entidade} #${l.entidade_id}` : ''} ·
+          ${new Date(l.created_at + 'Z').toLocaleString('pt-BR')}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = '<div class="empty">⚠️ Erro ao carregar auditoria</div>';
+  }
+}
 </script>
 </body>
 </html>

@@ -119,6 +119,30 @@ class AcompanhamentoResponse(BaseModel):
     distancia_km: Optional[float] = None
 
 
+# --- Ocorrencia manual (modo operador) ---
+class OcorrenciaManualCreate(BaseModel):
+    tipo: str
+    gravidade: int
+    lat: float
+    lon: float
+    descricao: Optional[str] = None
+    nome_solicitante: Optional[str] = None
+    operador: Optional[str] = None
+
+
+# --- Auditoria ---
+class AuditLogResponse(BaseModel):
+    id: int
+    ator: str
+    acao: str
+    entidade: Optional[str] = None
+    entidade_id: Optional[int] = None
+    detalhe: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Triagem (IA) ---
 class TriagemRequest(BaseModel):
     tipo: str
