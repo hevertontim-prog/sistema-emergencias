@@ -3,20 +3,39 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator 
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { colors } from '../theme';
 import { RootStackParamList } from '../navigation';
+import { buscarAgentePorMatricula } from '../services/api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
+// estado simples em memória (sem AsyncStorage — não é dependência do projeto ainda);
+// lembra a última matrícula só durante a sessão atual do app, reseta em reload/restart.
+let ultimaMatriculaDigitada = '';
+
 export default function LoginScreen({ navigation }: Props) {
-  const [matricula, setMatricula] = useState('');
-  const [nome, setNome] = useState('');
+  const [matricula, setMatricula] = useState(ultimaMatriculaDigitada);
   const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   async function handleLogin() {
-    if (!matricula.trim() || !nome.trim()) return;
+    const valor = matricula.trim();
+    if (!valor) return;
+    ultimaMatriculaDigitada = valor;
+    setErro(null);
     setLoading(true);
     try {
-      const agenteId = parseInt(matricula) || 1;
-      navigation.replace('Chamados', { agenteId, nome: nome.trim() });
+      const ag = await buscarAgentePorMatricula(valor);
+
+      // TODO: registrar push token via PUT /agente/{id}/push-token quando
+      // Platform !== 'web' — depende de expo-notifications, ainda não é
+      // dependência do app-agente (não adicionar agora).
+
+      navigation.replace('Chamados', { agenteId: ag.id, nome: ag.nome });
+    } catch (e: any) {
+      if (e?.status === 404) {
+        setErro('Matrícula não cadastrada. Procure o gestor da central.');
+      } else {
+        setErro('Sem conexão com a central. Tente novamente.');
+      }
     } finally {
       setLoading(false);
     }
@@ -30,23 +49,22 @@ export default function LoginScreen({ navigation }: Props) {
 
       <TextInput
         style={styles.input}
-        placeholder="Matrícula"
+        placeholder="Ex.: PM001"
         placeholderTextColor={colors.textSecondary}
         value={matricula}
-        onChangeText={setMatricula}
-        keyboardType="numeric"
+        onChangeText={(v) => { setMatricula(v); setErro(null); }}
+        autoCapitalize="characters"
+        autoCorrect={false}
       />
-      <TextInput
-        style={styles.input}
-        placeholder="Nome completo"
-        placeholderTextColor={colors.textSecondary}
-        value={nome}
-        onChangeText={setNome}
-      />
+
+      {erro && <Text style={styles.erro}>{erro}</Text>}
 
       <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
         {loading ? (
-          <ActivityIndicator color={colors.text} />
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.text} />
+            <Text style={styles.buttonText}>Verificando...</Text>
+          </View>
         ) : (
           <Text style={styles.buttonText}>ENTRAR</Text>
         )}
@@ -65,9 +83,13 @@ const styles = StyleSheet.create({
     borderRadius: 12, fontSize: 16, marginBottom: 12,
     borderWidth: 1, borderColor: '#1e293b',
   },
+  erro: {
+    color: '#ef4444', fontSize: 13, textAlign: 'center', marginBottom: 12,
+  },
   button: {
     backgroundColor: colors.primary, padding: 16, borderRadius: 12,
     alignItems: 'center', marginTop: 8,
   },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   buttonText: { color: colors.text, fontSize: 18, fontWeight: 'bold' },
 });

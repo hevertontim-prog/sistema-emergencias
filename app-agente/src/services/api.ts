@@ -8,13 +8,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Erro ${res.status}`);
+    throw Object.assign(new Error(body.detail || `Erro ${res.status}`), { status: res.status });
   }
   return res.json();
 }
 
 export async function listarFrota() {
   return request<any[]>('/frota');
+}
+
+export interface AgenteLogin {
+  id: number;
+  nome: string;
+  matricula: string;
+  tipo_recurso: string;
+  status: string;
+}
+
+export function buscarAgentePorMatricula(matricula: string) {
+  return request<AgenteLogin>(`/agentes/matricula/${encodeURIComponent(matricula)}`);
 }
 
 export async function buscarEmergencia(id: number) {

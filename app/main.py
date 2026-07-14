@@ -800,12 +800,13 @@ def cadastrar_agente(dados: AgenteCreate, db: Session = Depends(get_db),
             status_code=422,
             detail=f"tipo_recurso invalido. Valores aceitos: {', '.join(sorted(TIPOS_RECURSO_VALIDOS))}",
         )
-    if db.query(Agente).filter(Agente.matricula == dados.matricula).first():
+    matricula = dados.matricula.strip().upper()
+    if db.query(Agente).filter(Agente.matricula == matricula).first():
         raise HTTPException(status_code=409, detail="Matricula ja cadastrada")
     if dados.placa_viatura and db.query(Viatura).filter(Viatura.placa == dados.placa_viatura).first():
         raise HTTPException(status_code=409, detail="Placa ja cadastrada")
 
-    agente = Agente(nome=dados.nome, matricula=dados.matricula,
+    agente = Agente(nome=dados.nome, matricula=matricula,
                     tipo_recurso=dados.tipo_recurso, status="disponivel")
     db.add(agente)
     db.commit()
@@ -823,7 +824,7 @@ def cadastrar_agente(dados: AgenteCreate, db: Session = Depends(get_db),
 
     registrar_auditoria(
         db, _ator_operador(x_operador), "cadastrar_agente", "agente", agente.id,
-        f"nome={dados.nome} matricula={dados.matricula} tipo={dados.tipo_recurso} "
+        f"nome={dados.nome} matricula={matricula} tipo={dados.tipo_recurso} "
         f"gps={'sim' if dados.lat is not None else 'nao'} viatura={dados.placa_viatura or '-'}",
     )
     return agente
@@ -832,6 +833,16 @@ def cadastrar_agente(dados: AgenteCreate, db: Session = Depends(get_db),
 @app.get("/agentes", response_model=list[AgenteResponse])
 def listar_agentes(db: Session = Depends(get_db)):
     return db.query(Agente).all()
+
+
+@app.get("/agentes/matricula/{matricula}")
+def buscar_agente_por_matricula(matricula: str, db: Session = Depends(get_db)):
+    ag = db.query(Agente).filter(Agente.matricula == matricula.strip().upper()).first()
+    if not ag:
+        raise HTTPException(status_code=404, detail="Matrícula não cadastrada")
+    registrar_auditoria(db, f"agente:{ag.matricula}", "login_agente", "agente", ag.id, ag.nome)
+    return {"id": ag.id, "nome": ag.nome, "matricula": ag.matricula,
+            "tipo_recurso": ag.tipo_recurso, "status": ag.status}
 
 
 @app.post("/viaturas", response_model=ViaturaResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
