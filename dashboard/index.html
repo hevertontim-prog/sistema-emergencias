@@ -4,39 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SalvAI · Painel do Gestor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23FF5A4D'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  body { background: #0d0d0d; color: #fff; height: 100vh; overflow: hidden; }
+  body { background: #0D1B2E; color: #EAF2F8; height: 100vh; overflow: hidden; }
   .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
 
   header {
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
-    border-bottom: 1px solid #2a2a3e;
+    background: linear-gradient(135deg, #0D1B2E, #13233A);
+    border-bottom: 1px solid #24354A;
     padding: 12px 24px;
     display: flex; align-items: center; justify-content: space-between;
   }
   .logo { display: flex; align-items: center; gap: 12px; }
-  .logo-icon { font-size: 28px; }
-  .logo h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
-  .logo span { color: #a0a0b0; font-size: 12px; }
+  .brand-mark { display: flex; align-items: center; gap: 10px; }
+  .wordmark { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
+  .wordmark .ai { color: #FF5A4D; }
+  .header-subtitle, #last-update { color: #8FA3B8; font-size: 12px; }
   .stats { display: flex; gap: 12px; }
   .stat {
-    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 10px;
+    background: #13233A; border: 1px solid #24354A; border-radius: 10px;
     padding: 8px 16px; min-width: 110px; text-align: center;
   }
   .stat-num { font-size: 22px; font-weight: 700; }
-  .stat-label { font-size: 10px; color: #a0a0b0; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .stat-label { font-size: 10px; color: #8FA3B8; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
   .stat.danger .stat-num { color: #ef4444; }
-  .stat.warning .stat-num { color: #f59e0b; }
+  .stat.warning .stat-num { color: #FF5A4D; }
   .stat.info .stat-num { color: #3b82f6; }
-  .stat.success .stat-num { color: #10b981; }
+  .stat.success .stat-num { color: #7BE0B0; }
   .stat.clicavel { cursor: pointer; transition: border-color 0.15s, transform 0.1s; }
-  .stat.clicavel:hover { border-color: #4a4a6e; transform: translateY(-1px); }
+  .stat.clicavel:hover { border-color: #24354A; transform: translateY(-1px); }
   .stat.clicavel.ativo.danger { border-color: #ef4444; }
   .stat.clicavel.ativo.info { border-color: #3b82f6; }
-  .stat.clicavel.ativo.success { border-color: #10b981; }
+  .stat.clicavel.ativo.success { border-color: #7BE0B0; }
 
   main {
     display: grid;
@@ -46,26 +48,26 @@
     overflow: hidden;
   }
   .panel {
-    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px;
+    background: #13233A; border: 1px solid #24354A; border-radius: 12px;
     overflow: hidden; display: flex; flex-direction: column;
   }
   .panel-header {
-    padding: 14px 16px; border-bottom: 1px solid #2a2a3e;
+    padding: 14px 16px; border-bottom: 1px solid #24354A;
     display: flex; align-items: center; justify-content: space-between;
   }
-  .panel-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #a0a0b0; }
-  .panel-count { background: #252540; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .panel-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #8FA3B8; }
+  .panel-count { background: #13233A; border: 1px solid #24354A; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
   .panel-body { flex: 1; overflow-y: auto; padding: 8px; }
 
   /* Frota items */
   .agente {
-    background: #16213e; border-radius: 10px; padding: 12px;
+    background: #13233A; border-radius: 10px; padding: 12px;
     margin-bottom: 8px; border-left: 4px solid #3b82f6;
     transition: transform 0.1s;
   }
   .agente:hover { transform: translateX(2px); cursor: pointer; }
-  .agente.disponivel { border-left-color: #10b981; }
-  .agente.em_atendimento { border-left-color: #f59e0b; }
+  .agente.disponivel { border-left-color: #7BE0B0; }
+  .agente.em_atendimento { border-left-color: #F5B54A; }
   .agente-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
   .agente-icon { font-size: 22px; }
   .agente-nome { font-size: 13px; font-weight: 600; flex: 1; }
@@ -73,21 +75,21 @@
     font-size: 9px; font-weight: 700; padding: 3px 8px; border-radius: 8px;
     text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .agente-status.disponivel { background: #10b98133; color: #10b981; }
-  .agente-status.em_atendimento { background: #f59e0b33; color: #f59e0b; }
-  .agente-info { font-size: 11px; color: #a0a0b0; line-height: 1.5; }
+  .agente-status.disponivel { background: #7BE0B033; color: #7BE0B0; }
+  .agente-status.em_atendimento { background: #F5B54A33; color: #F5B54A; }
+  .agente-info { font-size: 11px; color: #8FA3B8; line-height: 1.5; }
 
   /* Mapa */
-  #map { height: 100%; width: 100%; background: #16213e; }
+  #map { height: 100%; width: 100%; background: #13233A; }
 
   /* Chamados */
   .chamado {
-    background: #16213e; border-radius: 10px; padding: 12px;
+    background: #13233A; border-radius: 10px; padding: 12px;
     margin-bottom: 8px; border-left: 4px solid #ef4444;
   }
-  .chamado.concluida, .chamado.finalizado { border-left-color: #10b981; opacity: 0.6; }
-  .chamado.em_atendimento { border-left-color: #8b5cf6; }
-  .chamado.aberta { border-left-color: #f59e0b; }
+  .chamado.concluida, .chamado.finalizado { border-left-color: #7BE0B0; opacity: 0.6; }
+  .chamado.em_atendimento { border-left-color: #FF5A4D; }
+  .chamado.aberta { border-left-color: #F5B54A; }
   .chamado-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   .chamado-id { font-size: 13px; font-weight: 700; }
   .chamado-tipo {
@@ -96,27 +98,27 @@
   }
   .tipo-policia { background: #3b82f633; color: #3b82f6; }
   .tipo-medica, .tipo-ambulancia { background: #ef444433; color: #ef4444; }
-  .tipo-bombeiro { background: #f59e0b33; color: #f59e0b; }
-  .chamado-info { font-size: 11px; color: #a0a0b0; line-height: 1.6; margin-top: 4px; }
-  .chamado-info strong { color: #fff; font-weight: 600; }
+  .tipo-bombeiro { background: #F5B54A33; color: #F5B54A; }
+  .chamado-info { font-size: 11px; color: #8FA3B8; line-height: 1.6; margin-top: 4px; }
+  .chamado-info strong { color: #EAF2F8; font-weight: 600; }
   .chamado-status-badge {
     display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 8px;
     border-radius: 6px; margin-top: 6px; text-transform: uppercase;
   }
-  .badge-aberta { background: #f59e0b33; color: #f59e0b; }
-  .badge-em_atendimento { background: #8b5cf633; color: #a78bfa; }
-  .badge-finalizado, .badge-concluida { background: #10b98133; color: #10b981; }
+  .badge-aberta { background: #F5B54A33; color: #F5B54A; }
+  .badge-em_atendimento { background: #FF5A4D33; color: #FF5A4D; }
+  .badge-finalizado, .badge-concluida { background: #7BE0B033; color: #7BE0B0; }
 
   .btn-finalizar {
     margin-top: 8px; margin-left: 8px;
-    background: #10b98122; color: #10b981; border: 1px solid #10b98155;
+    background: #7BE0B022; color: #7BE0B0; border: 1px solid #7BE0B055;
     border-radius: 6px; padding: 4px 10px; font-size: 10px; font-weight: 700;
     cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .btn-finalizar:hover { background: #10b98144; }
+  .btn-finalizar:hover { background: #7BE0B044; }
   .btn-finalizar:disabled { opacity: 0.5; cursor: default; }
 
-  .empty { text-align: center; padding: 32px 16px; color: #a0a0b0; font-size: 13px; }
+  .empty { text-align: center; padding: 32px 16px; color: #8FA3B8; font-size: 13px; }
   .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.4; }
 
   .pulse { animation: pulse 1.5s ease-in-out infinite; }
@@ -125,18 +127,18 @@
     50% { opacity: 0.5; }
   }
 
-  .leaflet-popup-content-wrapper { background: #1a1a2e; color: #fff; border-radius: 8px; }
-  .leaflet-popup-tip { background: #1a1a2e; }
+  .leaflet-popup-content-wrapper { background: #13233A; color: #EAF2F8; border-radius: 8px; }
+  .leaflet-popup-tip { background: #13233A; }
   .leaflet-popup-content { font-size: 12px; }
 
   /* Botões de ação do header */
   .header-acoes { display: flex; gap: 8px; }
   .btn-acao {
-    background: #ef4444; color: #fff; border: none; border-radius: 10px;
+    background: linear-gradient(135deg, #FF5A4D, #E64A3D); color: #fff; border: none; border-radius: 10px;
     padding: 10px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
   }
   .btn-acao:hover { filter: brightness(1.15); }
-  .btn-acao.secundario { background: #252540; border: 1px solid #2a2a3e; }
+  .btn-acao.secundario { background: #13233A; border: 1px solid #24354A; }
 
   /* Modais */
   .modal-bg {
@@ -148,45 +150,51 @@
   .modal-bg.flutuante { background: transparent; pointer-events: none; justify-content: flex-start; padding-left: 12px; }
   .modal-bg.flutuante .modal { pointer-events: auto; }
   .modal {
-    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px;
+    background: #13233A; border: 1px solid #24354A; border-radius: 12px;
     width: 400px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
     padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
   }
   .modal h2 { font-size: 15px; margin-bottom: 14px; }
-  .modal h2 small { color: #a0a0b0; font-weight: 400; font-size: 11px; display: block; margin-top: 2px; }
-  .modal label { display: block; font-size: 11px; color: #a0a0b0; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal h2 small { color: #8FA3B8; font-weight: 400; font-size: 11px; display: block; margin-top: 2px; }
+  .modal label { display: block; font-size: 11px; color: #8FA3B8; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
   .modal input, .modal select, .modal textarea {
-    width: 100%; background: #16213e; border: 1px solid #2a2a3e; border-radius: 8px;
-    color: #fff; padding: 9px 10px; font-size: 13px;
+    width: 100%; background: #0D1B2E; border: 1px solid #24354A; border-radius: 8px;
+    color: #EAF2F8; padding: 9px 10px; font-size: 13px;
   }
   .modal textarea { resize: vertical; min-height: 56px; }
   .modal .linha { display: flex; gap: 8px; }
   .modal .linha > div { flex: 1; }
   .modal .acoes { display: flex; gap: 8px; margin-top: 16px; }
   .modal .acoes .btn-acao { flex: 1; }
-  .aviso-endereco { font-size: 11px; color: #10b981; margin-top: 4px; min-height: 14px; }
+  .aviso-endereco { font-size: 11px; color: #7BE0B0; margin-top: 4px; min-height: 14px; }
   .briefing-ia {
-    background: #16213e; border-left: 4px solid #8b5cf6; border-radius: 8px;
-    padding: 10px; font-size: 12px; color: #d0d0e0; margin-top: 10px; display: none;
+    background: #0D1B2E; border-left: 4px solid #FF5A4D; border-radius: 8px;
+    padding: 10px; font-size: 12px; color: #EAF2F8; margin-top: 10px; display: none;
   }
-  .modal-fechar { float: right; background: none; border: none; color: #a0a0b0; font-size: 18px; cursor: pointer; }
+  .modal-fechar { float: right; background: none; border: none; color: #8FA3B8; font-size: 18px; cursor: pointer; }
 
   /* Auditoria */
   .audit-item {
-    background: #16213e; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+    background: #0D1B2E; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
     font-size: 12px; border-left: 3px solid #3b82f6;
   }
   .audit-item .audit-acao { font-weight: 700; }
-  .audit-item .audit-meta { color: #a0a0b0; font-size: 11px; margin-top: 2px; }
+  .audit-item .audit-meta { color: #8FA3B8; font-size: 11px; margin-top: 2px; }
 </style>
 </head>
 <body>
 <div class="app">
   <header>
     <div class="logo">
-      <span class="logo-icon">🚨</span>
+      <div class="brand-mark">
+        <svg width="52" height="26" viewBox="0 0 52 26" fill="none">
+          <polyline points="1,15 12,15 17,4 24,22 29,15 40,15" stroke="#FF5A4D" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <circle cx="46" cy="15" r="3.4" fill="#FF5A4D"/>
+        </svg>
+        <span class="wordmark">Salv<span class="ai">AI</span></span>
+      </div>
       <div>
-        <h1>SalvAI · Painel do Gestor</h1>
+        <div class="header-subtitle">Painel do Gestor</div>
         <span id="last-update">Aguardando dados...</span>
       </div>
     </div>

@@ -4,77 +4,85 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SalvAI · Histórico de Chamados</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23FF5A4D'/%3E%3C/svg%3E">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  body { background: #0d0d0d; color: #fff; min-height: 100vh; }
+  body { background: #0D1B2E; color: #EAF2F8; min-height: 100vh; }
 
   header {
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
-    border-bottom: 1px solid #2a2a3e;
+    background: linear-gradient(135deg, #0D1B2E, #13233A);
+    border-bottom: 1px solid #24354A;
     padding: 12px 24px;
     display: flex; align-items: center; justify-content: space-between;
   }
   .logo { display: flex; align-items: center; gap: 12px; }
-  .logo-icon { font-size: 28px; }
-  .logo h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
-  .logo span { color: #a0a0b0; font-size: 12px; }
+  .brand-mark { display: flex; align-items: center; gap: 10px; }
+  .wordmark { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
+  .wordmark .ai { color: #FF5A4D; }
+  .header-subtitle, #last-update { color: #8FA3B8; font-size: 12px; }
   .voltar {
-    color: #a0a0b0; text-decoration: none; font-size: 13px;
-    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 10px;
+    color: #8FA3B8; text-decoration: none; font-size: 13px;
+    background: #13233A; border: 1px solid #24354A; border-radius: 10px;
     padding: 8px 16px;
   }
-  .voltar:hover { color: #fff; border-color: #4a4a6e; }
+  .voltar:hover { color: #EAF2F8; border-color: #FF5A4D; }
 
   main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 
   .toolbar { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
   .toolbar input {
-    flex: 1; max-width: 360px; background: #1a1a2e; border: 1px solid #2a2a3e;
-    border-radius: 8px; color: #fff; padding: 10px 12px; font-size: 13px;
+    flex: 1; max-width: 360px; background: #13233A; border: 1px solid #24354A;
+    border-radius: 8px; color: #EAF2F8; padding: 10px 12px; font-size: 13px;
   }
-  .toolbar input:focus { outline: none; border-color: #4a4a6e; }
+  .toolbar input:focus { outline: none; border-color: #FF5A4D; }
   .btn-acao {
-    background: #252540; color: #fff; border: 1px solid #2a2a3e; border-radius: 8px;
+    background: #13233A; color: #EAF2F8; border: 1px solid #24354A; border-radius: 8px;
     padding: 10px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
   }
   .btn-acao:hover { filter: brightness(1.15); }
 
   .panel {
-    background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 12px;
+    background: #13233A; border: 1px solid #24354A; border-radius: 12px;
     overflow: hidden;
   }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   thead th {
-    text-align: left; padding: 12px 14px; color: #a0a0b0; font-size: 10px;
-    text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #2a2a3e;
-    background: #16213e; position: sticky; top: 0;
+    text-align: left; padding: 12px 14px; color: #8FA3B8; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #24354A;
+    background: #0D1B2E; position: sticky; top: 0;
   }
-  tbody td { padding: 10px 14px; border-bottom: 1px solid #22223a; vertical-align: top; }
-  tbody tr:hover { background: #16213e; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid #24354A; vertical-align: top; }
+  tbody tr:hover { background: #0D1B2E; }
   tbody tr:last-child td { border-bottom: none; }
 
   .selo {
     display: inline-block; font-size: 10px; font-weight: 700; padding: 3px 8px;
     border-radius: 8px; text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .selo-g1, .selo-g2 { background: #10b98133; color: #10b981; }
-  .selo-g3 { background: #f59e0b33; color: #f59e0b; }
+  .selo-g1, .selo-g2 { background: #7BE0B033; color: #7BE0B0; }
+  .selo-g3 { background: #F5B54A33; color: #F5B54A; }
   .selo-g4, .selo-g5 { background: #ef444433; color: #ef4444; }
 
   .desc-truncada { max-width: 320px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 
-  .empty { text-align: center; padding: 60px 16px; color: #a0a0b0; font-size: 14px; }
+  .empty { text-align: center; padding: 60px 16px; color: #8FA3B8; font-size: 14px; }
   .empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
 
-  footer { text-align: center; padding: 20px; color: #55556a; font-size: 11px; }
+  footer { text-align: center; padding: 20px; color: #8FA3B8; font-size: 11px; }
 </style>
 </head>
 <body>
 <header>
   <div class="logo">
-    <span class="logo-icon">🚨</span>
+    <div class="brand-mark">
+      <svg width="52" height="26" viewBox="0 0 52 26" fill="none">
+        <polyline points="1,15 12,15 17,4 24,22 29,15 40,15" stroke="#FF5A4D" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <circle cx="46" cy="15" r="3.4" fill="#FF5A4D"/>
+      </svg>
+      <span class="wordmark">Salv<span class="ai">AI</span></span>
+    </div>
     <div>
-      <h1>SalvAI · Histórico de Chamados</h1>
+      <div class="header-subtitle">Histórico de Chamados</div>
       <span id="last-update">Aguardando dados...</span>
     </div>
   </div>
