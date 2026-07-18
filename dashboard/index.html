@@ -180,6 +180,61 @@
   }
   .audit-item .audit-acao { font-weight: 700; }
   .audit-item .audit-meta { color: #8FA3B8; font-size: 11px; margin-top: 2px; }
+
+  /* Sugestões pendentes (Painel de Soberania) */
+  .sugestao {
+    background: #13233A; border: 1px solid #FF5A4D; border-radius: 10px;
+    padding: 12px; margin-bottom: 8px; box-shadow: 0 0 0 1px #FF5A4D22;
+  }
+  .sugestao-topo {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+  }
+  .sugestao-tag {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+    color: #FF5A4D;
+  }
+  .sugestao-timer {
+    font-size: 10px; font-weight: 700; color: #F5B54A;
+    background: #F5B54A22; padding: 2px 8px; border-radius: 8px;
+  }
+  .sugestao-timer.manual { color: #8FA3B8; background: #24354A; }
+  .sugestao-info { font-size: 11px; color: #8FA3B8; line-height: 1.6; }
+  .sugestao-info strong { color: #EAF2F8; }
+  .sug-acoes { display: flex; gap: 6px; margin-top: 8px; }
+  .sug-acoes button {
+    flex: 1; border-radius: 6px; padding: 6px 8px; font-size: 10px; font-weight: 700;
+    cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; border: none;
+  }
+  .sug-confirmar { background: linear-gradient(135deg, #FF5A4D, #E64A3D); color: #fff; }
+  .sug-descartar { background: #24354A; color: #8FA3B8; }
+  .sug-acoes button:hover { filter: brightness(1.15); }
+  .sug-acoes button:disabled { opacity: 0.5; cursor: default; }
+
+  /* Modal de Soberania: alavancas */
+  .alavanca { margin: 14px 0; }
+  .alavanca-titulo { font-size: 12px; font-weight: 700; color: #EAF2F8; }
+  .alavanca-desc { font-size: 11px; color: #8FA3B8; margin: 2px 0 8px; line-height: 1.4; }
+  .switch-linha { display: flex; align-items: center; gap: 10px; }
+  .switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch-slider {
+    position: absolute; inset: 0; background: #24354A; border-radius: 24px;
+    transition: 0.2s; cursor: pointer;
+  }
+  .switch-slider:before {
+    content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+    background: #EAF2F8; border-radius: 50%; transition: 0.2s;
+  }
+  .switch input:checked + .switch-slider { background: #FF5A4D; }
+  .switch input:checked + .switch-slider:before { transform: translateX(20px); }
+  .soberania-condicional.desativado { opacity: 0.4; pointer-events: none; }
+  .chips-recurso { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip-recurso {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: #EAF2F8;
+    background: #0D1B2E; border: 1px solid #24354A; border-radius: 8px; padding: 6px 10px;
+    cursor: pointer;
+  }
+  .chip-recurso input { width: auto; }
 </style>
 </head>
 <body>
@@ -200,6 +255,7 @@
     </div>
     <div class="header-acoes">
       <button class="btn-acao" id="btn-nova-ocorrencia" onclick="abrirModalOcorrencia()">➕ Nova Ocorrência</button>
+      <button class="btn-acao secundario" id="btn-soberania" onclick="abrirModalSoberania()">🛡️ Soberania</button>
       <button class="btn-acao secundario" id="btn-auditoria" onclick="abrirModalAuditoria()">📜 Auditoria</button>
       <button class="btn-acao secundario" id="btn-cadastros" onclick="abrirModalCadastros()">⚙️ Cadastros</button>
     </div>
@@ -248,7 +304,10 @@
         <span class="panel-title" id="chamados-titulo">📋 Operação ao Vivo</span>
         <span class="panel-count" id="chamados-count">0</span>
       </div>
-      <div class="panel-body" id="chamados-list"></div>
+      <div class="panel-body">
+        <div id="sugestoes-list"></div>
+        <div id="chamados-list"></div>
+      </div>
     </section>
   </main>
 </div>
@@ -387,6 +446,65 @@
   </div>
 </div>
 
+<!-- Modal: Painel de Soberania -->
+<div class="modal-bg" id="modal-soberania" onclick="if(event.target===this)this.classList.remove('aberto')">
+  <div class="modal" style="width:460px">
+    <button class="modal-fechar" onclick="document.getElementById('modal-soberania').classList.remove('aberto')">✕</button>
+    <h2>🛡️ Painel de Soberania <small>A prefeitura controla o quanto confia no despacho automático</small></h2>
+
+    <div class="alavanca">
+      <div class="switch-linha">
+        <label class="switch">
+          <input type="checkbox" id="sb-autonomia" onchange="atualizarEstadoSoberania()">
+          <span class="switch-slider"></span>
+        </label>
+        <div>
+          <div class="alavanca-titulo">Autonomia total (despacho imediato)</div>
+          <div class="alavanca-desc">A IA despacha a viatura na hora, sem esperar confirmação. Desligue para assumir o controle das alavancas abaixo.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sb-condicional" class="soberania-condicional">
+      <div class="alavanca">
+        <div class="alavanca-titulo">Tempo de confirmação</div>
+        <div class="alavanca-desc">Segundos que a sugestão espera o operador antes de despachar sozinha. 0 = precisa sempre de confirmação manual.</div>
+        <input type="number" id="sb-delay" min="0" max="3600" step="5" value="0">
+      </div>
+
+      <div class="alavanca">
+        <div class="alavanca-titulo">Criticidade que dispensa espera</div>
+        <div class="alavanca-desc">Ocorrências com gravidade igual ou acima despacham na hora — velocidade salva. (6 = nunca dispensar por gravidade.)</div>
+        <select id="sb-gravidade">
+          <option value="1">G1 ou mais (tudo imediato)</option>
+          <option value="2">G2 ou mais</option>
+          <option value="3">G3 ou mais</option>
+          <option value="4">G4 ou mais (crítico)</option>
+          <option value="5">G5 (só o mais grave)</option>
+          <option value="6">Nunca por gravidade</option>
+        </select>
+      </div>
+
+      <div class="alavanca">
+        <div class="alavanca-titulo">Agências que exigem confirmação humana</div>
+        <div class="alavanca-desc">Esses recursos nunca despacham sozinhos — sempre esperam o operador (ex.: confirmação médica do SAMU).</div>
+        <div class="chips-recurso">
+          <label class="chip-recurso"><input type="checkbox" class="sb-recurso" value="policia"> 🚔 Polícia</label>
+          <label class="chip-recurso"><input type="checkbox" class="sb-recurso" value="ambulancia"> 🚑 SAMU</label>
+          <label class="chip-recurso"><input type="checkbox" class="sb-recurso" value="bombeiro"> 🚒 Bombeiro</label>
+        </div>
+      </div>
+    </div>
+
+    <label>Chave API</label>
+    <input id="sb-key" type="password" placeholder="x-api-key">
+
+    <div class="acoes">
+      <button class="btn-acao" id="sb-btn-salvar" onclick="salvarSoberania()">💾 Salvar configuração</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API_URL = 'https://sistema-emergencias-production.up.railway.app';
 
@@ -461,14 +579,16 @@ let ultimosAtivos = null;
 
 async function refresh() {
   try {
-    const [frota, ativos, todos] = await Promise.all([
+    const [frota, ativos, todos, sugestoes] = await Promise.all([
       fetchJSON('/frota'),
       fetchJSON('/emergencias?status=aberta,em_atendimento&limit=100'),
       fetchJSON('/emergencias?limit=500'),
+      fetchJSON('/sugestoes'),
     ]);
 
     ultimosAtivos = ativos;
     renderFrota(frota);
+    renderSugestoes(sugestoes);
     renderEmergencias(ativos);
     renderMapa(frota, ativos);
     renderStats(frota, todos);
@@ -553,6 +673,60 @@ async function finalizarOcorrencia(id, btn) {
   } catch (e) {
     alert('Falha ao finalizar: ' + e.message);
     btn.disabled = false; btn.textContent = '✅ Finalizar';
+  }
+}
+
+function renderSugestoes(sugestoes) {
+  const el = document.getElementById('sugestoes-list');
+  if (!el) return;
+  if (!sugestoes || !sugestoes.length) { el.innerHTML = ''; return; }
+  el.innerHTML = sugestoes.map(s => {
+    const emoji = EMERG_ICON[s.tipo] || '🚨';
+    const timer = s.segundos_restantes == null
+      ? '<span class="sugestao-timer manual">confirmação manual</span>'
+      : `<span class="sugestao-timer">⏳ auto em ${s.segundos_restantes}s</span>`;
+    return `
+      <div class="sugestao">
+        <div class="sugestao-topo">
+          <span class="sugestao-tag">🛡️ aguardando sua confirmação</span>
+          ${timer}
+        </div>
+        <div class="sugestao-info">
+          <strong>${emoji} #${s.id_emergencia} · ${s.tipo} · G${s.gravidade ?? '?'}</strong>
+          ${s.descricao ? `<br>${s.descricao}` : ''}
+          <br>🚓 Sugerido: <strong>${s.agente_nome || '—'}</strong>${s.distancia_km != null ? ` (${s.distancia_km} km)` : ''}
+        </div>
+        <div class="sug-acoes">
+          <button class="sug-confirmar" onclick="acaoSugestao(${s.id}, this, 'confirmar')">✅ Despachar agora</button>
+          <button class="sug-descartar" onclick="acaoSugestao(${s.id}, this, 'descartar')">✕ Descartar</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function acaoSugestao(id, btn, acao) {
+  let key = sessionStorage.getItem('salvai_key');
+  if (!key) {
+    key = prompt('Chave API para ' + (acao === 'confirmar' ? 'despachar' : 'descartar') + ':');
+    if (!key) return;
+    sessionStorage.setItem('salvai_key', key);
+  }
+  if (acao === 'descartar' && !confirm('Descartar a sugestão? A ocorrência segue aberta, sem despacho.')) return;
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const r = await fetch(API_URL + `/sugestao/${id}/${acao}`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': key,
+        'x-operador': sessionStorage.getItem('salvai_operador') || 'nao_informado',
+      },
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    refresh();
+  } catch (e) {
+    alert('Falha: ' + e.message);
+    btn.disabled = false; btn.textContent = acao === 'confirmar' ? '✅ Despachar agora' : '✕ Descartar';
   }
 }
 
@@ -758,16 +932,21 @@ async function confirmarOcorrencia() {
 
     const bEl = document.getElementById('oc-briefing');
     bEl.style.display = 'block';
-    const t = oc.triagem, desp = oc.despacho;
+    const t = oc.triagem, desp = oc.despacho, sug = oc.sugestao;
     const linhas = [];
     if (t) {
       const aviso = t.origem === 'fallback' ? ' ⚠️ IA indisponível — gravidade padrão' : '';
       linhas.push(`🤖 Gravidade ${t.gravidade} · ${t.recurso_sugerido}${aviso}`);
       if (t.briefing) linhas.push(`"${t.briefing}"`);
     }
-    linhas.push(desp
-      ? `🚓 Despachado: ${desp.agente_nome} (${desp.distancia_km} km)`
-      : '⏳ Aguardando agente disponível');
+    if (sug) {
+      const quando = sug.modo === 'manual' ? 'aguardando confirmação manual' : 'auto-despacho no prazo configurado';
+      linhas.push(`🛡️ Sugestão: ${sug.agente_nome || '—'}${sug.distancia_km != null ? ` (${sug.distancia_km} km)` : ''} — ${quando}. Confirme no painel.`);
+    } else {
+      linhas.push(desp
+        ? `🚓 Despachado: ${desp.agente_nome} (${desp.distancia_km} km)`
+        : '⏳ Aguardando agente disponível');
+    }
     bEl.textContent = `✅ Ocorrência #${oc.id} — ${linhas.join(' · ')}`;
 
     refresh();
@@ -875,6 +1054,59 @@ async function carregarOperadoresDatalist() {
   } catch (e) { /* texto livre continua aceito */ }
 }
 carregarOperadoresDatalist();
+
+// ──────────────── Painel de Soberania ────────────────
+
+async function abrirModalSoberania() {
+  document.getElementById('sb-key').value = sessionStorage.getItem('salvai_key') || '';
+  try {
+    const cfg = await fetchJSON('/configuracao');
+    document.getElementById('sb-autonomia').checked = !!cfg.autonomia_total;
+    document.getElementById('sb-delay').value = cfg.delay_segundos;
+    document.getElementById('sb-gravidade').value = String(cfg.gravidade_imediata_min);
+    const manuais = (cfg.recursos_confirmacao_manual || '').split(',').map(s => s.trim());
+    document.querySelectorAll('.sb-recurso').forEach(cb => { cb.checked = manuais.includes(cb.value); });
+  } catch (e) { /* backend fora — mantém valores atuais dos campos */ }
+  atualizarEstadoSoberania();
+  document.getElementById('modal-soberania').classList.add('aberto');
+}
+
+function atualizarEstadoSoberania() {
+  const autonomia = document.getElementById('sb-autonomia').checked;
+  document.getElementById('sb-condicional').classList.toggle('desativado', autonomia);
+}
+
+async function salvarSoberania() {
+  const key = document.getElementById('sb-key').value.trim();
+  if (!key) { alert('Informe a chave API.'); return; }
+  sessionStorage.setItem('salvai_key', key);
+  const recursos = [...document.querySelectorAll('.sb-recurso:checked')].map(cb => cb.value).join(',');
+  const body = {
+    autonomia_total: document.getElementById('sb-autonomia').checked ? 1 : 0,
+    delay_segundos: parseInt(document.getElementById('sb-delay').value) || 0,
+    gravidade_imediata_min: parseInt(document.getElementById('sb-gravidade').value) || 4,
+    recursos_confirmacao_manual: recursos,
+  };
+  const btn = document.getElementById('sb-btn-salvar');
+  btn.disabled = true; btn.textContent = 'Salvando...';
+  try {
+    const r = await fetch(API_URL + '/configuracao', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json', 'x-api-key': key,
+        'x-operador': sessionStorage.getItem('salvai_operador') || 'nao_informado',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.status);
+    document.getElementById('modal-soberania').classList.remove('aberto');
+    refresh();
+  } catch (e) {
+    alert('Falha ao salvar: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 Salvar configuração';
+  }
+}
 
 // ──────────────── Auditoria ────────────────
 

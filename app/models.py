@@ -105,3 +105,38 @@ class PosicaoGPS(Base):
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     agente = relationship("Agente", back_populates="posicoes")
+
+
+class ConfiguracaoDespacho(Base):
+    """Painel de Soberania — a prefeitura calibra o quanto confia no despacho
+    automático. Singleton (uma linha, id=1). Default = comportamento do MVP
+    (autonomia total / despacho imediato), então ligar a feature é opt-in."""
+    __tablename__ = "configuracao_despacho"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # 1 = despacha na hora (comportamento atual do MVP). 0 = usa as regras abaixo.
+    autonomia_total = Column(Integer, default=1)
+    # Segundos que a sugestão fica pendente antes de auto-confirmar (0 = imediato).
+    delay_segundos = Column(Integer, default=0)
+    # Ocorrências com gravidade >= este valor despacham na hora mesmo sem autonomia total.
+    gravidade_imediata_min = Column(Integer, default=4)
+    # CSV de tipos de recurso que SEMPRE exigem confirmação manual (ex: "ambulancia").
+    recursos_confirmacao_manual = Column(String(200), default="")
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class SugestaoDespacho(Base):
+    """Despacho sugerido pela IA aguardando confirmação (manual ou por tempo).
+    A emergência continua com status 'aberta' até a confirmação — os apps do
+    cidadão/agente não veem estado novo, só o painel do gestor."""
+    __tablename__ = "sugestoes_despacho"
+
+    id = Column(Integer, primary_key=True, index=True)
+    id_emergencia = Column(Integer, ForeignKey("emergencias.id"), nullable=False)
+    id_agente_sugerido = Column(Integer, ForeignKey("agentes.id"), nullable=False)
+    distancia_km = Column(Float, nullable=True)
+    briefing = Column(String(500), nullable=True)
+    # None = só confirmação manual (delay infinito); senão, instante do auto-confirm.
+    expira_em = Column(DateTime, nullable=True)
+    status = Column(String(20), default="pendente")  # pendente | confirmada | descartada
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

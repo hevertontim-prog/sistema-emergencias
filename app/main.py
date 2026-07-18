@@ -18,7 +18,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app.database import engine, get_db, Base
-from app.models import Emergencia, Agente, Usuario, Despacho, PosicaoGPS, AuditLog, Operador, Viatura
+from app.models import (
+    Emergencia, Agente, Usuario, Despacho, PosicaoGPS, AuditLog, Operador, Viatura,
+    ConfiguracaoDespacho, SugestaoDespacho,
+)
 from app.schemas import (
     UsuarioCreate, UsuarioResponse, PushTokenUpdate,
     EmergenciaCreate, EmergenciaResponse,
@@ -29,7 +32,9 @@ from app.schemas import (
     OcorrenciaManualCreate, OcorrenciaManualResponse, AuditLogResponse,
     AgenteCreate, AgenteResponse, ViaturaCreate, ViaturaResponse,
     OperadorCreate, OperadorResponse,
+    ConfiguracaoResponse, ConfiguracaoUpdate, SugestaoResponse,
 )
+from datetime import timedelta
 
 Base.metadata.create_all(bind=engine)
 
@@ -249,9 +254,10 @@ def criar_emergencia(dados: EmergenciaCreate, db: Session = Depends(get_db)):
                 "IA indisponível — despacho com gravidade padrão 3",
             )
 
-    # Auto-despacho: tenta atribuir agente mais proximo. Se nao houver, segue como aberta.
+    # Despacho: imediato ou sugestão pendente, conforme o Painel de Soberania.
+    # Se vira sugestão, a emergência segue 'aberta' (o cidadão vê "aguardando").
     try:
-        _executar_despacho(emergencia, db, briefing=briefing_triagem)
+        _despachar_ou_sugerir(emergencia, db, briefing=briefing_triagem)
         db.refresh(emergencia)
     except Exception:
         pass
@@ -275,6 +281,7 @@ from app.schemas import AcompanhamentoResponse
 
 @app.get("/emergencia/{emergencia_id}/acompanhamento", response_model=AcompanhamentoResponse)
 def acompanhamento_emergencia(emergencia_id: int, db: Session = Depends(get_db)):
+    _processar_sugestoes_vencidas(db)
     emergencia = db.query(Emergencia).filter(Emergencia.id == emergencia_id).first()
     if not emergencia:
         raise HTTPException(status_code=404, detail="Emergencia nao encontrada")
@@ -352,6 +359,13 @@ def finalizar_emergencia(emergencia_id: int, db: Session = Depends(get_db), x_op
         if agente:
             agente.status = "disponivel"
 
+    # Descarta sugestões de despacho ainda pendentes desta emergência (ex: sugestão
+    # só-manual que nunca foi confirmada) para não deixar registro órfão no banco.
+    db.query(SugestaoDespacho).filter(
+        SugestaoDespacho.id_emergencia == emergencia_id,
+        SugestaoDespacho.status == "pendente",
+    ).update({"status": "descartada"})
+
     emergencia.status = "finalizada"
     db.commit()
 
@@ -369,6 +383,7 @@ def finalizar_emergencia(emergencia_id: int, db: Session = Depends(get_db), x_op
 
 @app.get("/frota", response_model=list[AgenteFrota])
 def listar_frota(db: Session = Depends(get_db)):
+    _processar_sugestoes_vencidas(db)
     agentes = db.query(Agente).all()
     resultado = []
     for ag in agentes:
@@ -405,6 +420,7 @@ def listar_frota(db: Session = Depends(get_db)):
 def listar_emergencias(status: str = None, limit: int = 100, db: Session = Depends(get_db)):
     """Lista emergências para o dashboard do gestor (mais recentes primeiro).
     `status` aceita lista separada por vírgula (ex.: aberta,em_atendimento)."""
+    _processar_sugestoes_vencidas(db)
     limit = min(limit, 500)
     query = db.query(Emergencia)
     if status:
@@ -495,9 +511,9 @@ TIPO_EMERGENCIA_PARA_RECURSO = {
     "incendio": "bombeiro",
 }
 
-def _executar_despacho(emergencia: Emergencia, db: Session, briefing: Optional[str] = None) -> Optional[Tuple[Despacho, Agente, float]]:
-    """Encontra o agente disponivel mais proximo e cria o despacho.
-    Retorna (despacho, agente, distancia_km) ou None se nenhum disponivel."""
+def _escolher_melhor_agente(emergencia: Emergencia, db: Session) -> Optional[Tuple[Agente, float]]:
+    """Seleciona o agente disponivel mais proximo (Haversine) para a emergencia.
+    Retorna (agente, distancia_km) ou None se nenhum disponivel. Nao efetiva nada."""
     tipo_recurso = TIPO_EMERGENCIA_PARA_RECURSO.get(emergencia.tipo)
 
     query = db.query(Agente).filter(Agente.status == "disponivel")
@@ -535,12 +551,35 @@ def _executar_despacho(emergencia: Emergencia, db: Session, briefing: Optional[s
         melhor_agente = agentes_disponiveis[0]
         menor_distancia = 0.0
 
+    return melhor_agente, menor_distancia
+
+
+def _executar_despacho(emergencia: Emergencia, db: Session, briefing: Optional[str] = None) -> Optional[Tuple[Despacho, Agente, float]]:
+    """Encontra o agente disponivel mais proximo e cria o despacho.
+    Retorna (despacho, agente, distancia_km) ou None se nenhum disponivel."""
+    escolha = _escolher_melhor_agente(emergencia, db)
+    if not escolha:
+        return None
+    melhor_agente, menor_distancia = escolha
+
+    # Reserva atômica do agente: sob concorrência (vários vencimentos de sugestão
+    # processados por GETs paralelos do painel), duas emergências podem escolher o
+    # mesmo agente mais próximo. O UPDATE condicional garante que só um despacho o
+    # pegue; se falhar, re-tenta com o próximo disponível.
+    reservado = (
+        db.query(Agente)
+        .filter(Agente.id == melhor_agente.id, Agente.status == "disponivel")
+        .update({"status": "em_atendimento"})
+    )
+    if reservado != 1:
+        db.commit()
+        return _executar_despacho(emergencia, db, briefing=briefing)
+
     despacho = Despacho(
         id_emergencia=emergencia.id,
         id_agente=melhor_agente.id,
         status="a_caminho",
     )
-    melhor_agente.status = "em_atendimento"
     emergencia.status = "em_atendimento"
 
     db.add(despacho)
@@ -592,6 +631,140 @@ def _executar_despacho(emergencia: Emergencia, db: Session, briefing: Optional[s
         )
 
     return despacho, melhor_agente, menor_distancia
+
+
+# ─────────────────── Painel de Soberania: máquina de autonomia ──────
+# A prefeitura calibra o quanto confia no despacho automático. O default
+# (autonomia_total=1) reproduz o comportamento do MVP: despacho imediato.
+
+def _get_config(db: Session) -> ConfiguracaoDespacho:
+    """Get-or-create do singleton de configuracao (id=1)."""
+    config = db.query(ConfiguracaoDespacho).first()
+    if not config:
+        config = ConfiguracaoDespacho(
+            autonomia_total=1, delay_segundos=0,
+            gravidade_imediata_min=4, recursos_confirmacao_manual="",
+        )
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+    return config
+
+
+def _calcular_delay_despacho(emergencia: Emergencia, config: ConfiguracaoDespacho):
+    """Decide quanto tempo a sugestao fica pendente antes de virar despacho:
+      0     -> despacha imediatamente (comportamento atual do MVP)
+      N > 0 -> sugestao pendente, auto-confirma em N segundos
+      None  -> sugestao pendente, so confirmacao manual (delay infinito)."""
+    if config.autonomia_total:
+        return 0
+    # Agência/recurso que exige confirmação humana sempre espera (ex: SAMU).
+    recursos_manuais = {r.strip() for r in (config.recursos_confirmacao_manual or "").split(",") if r.strip()}
+    tipo_recurso = TIPO_EMERGENCIA_PARA_RECURSO.get(emergencia.tipo, emergencia.tipo)
+    if tipo_recurso in recursos_manuais:
+        return None
+    # Ocorrência crítica não espera — velocidade salva.
+    if emergencia.gravidade is not None and emergencia.gravidade >= config.gravidade_imediata_min:
+        return 0
+    return max(0, config.delay_segundos or 0)
+
+
+def _despachar_ou_sugerir(emergencia: Emergencia, db: Session, briefing: Optional[str] = None):
+    """Ponto de decisão do despacho. Retorna:
+      ('despacho', (despacho, agente, dist)) — despacho efetivado agora
+      ('sugestao', SugestaoDespacho)         — pendente de confirmação
+      ('sem_agente', None)                   — nenhum agente disponível."""
+    config = _get_config(db)
+    delay = _calcular_delay_despacho(emergencia, config)
+
+    if delay == 0:
+        resultado = _executar_despacho(emergencia, db, briefing=briefing)
+        return ("despacho", resultado) if resultado else ("sem_agente", None)
+
+    escolha = _escolher_melhor_agente(emergencia, db)
+    if not escolha:
+        return ("sem_agente", None)
+    agente, dist = escolha
+
+    expira_em = None if delay is None else datetime.utcnow() + timedelta(seconds=delay)
+    sugestao = SugestaoDespacho(
+        id_emergencia=emergencia.id, id_agente_sugerido=agente.id,
+        distancia_km=round(dist, 2), briefing=briefing,
+        expira_em=expira_em, status="pendente",
+    )
+    db.add(sugestao)
+    db.commit()
+    db.refresh(sugestao)
+
+    modo = "auto em %ss" % delay if delay is not None else "confirmação manual"
+    registrar_auditoria(
+        db, "sistema", "sugestao_despacho", "sugestao", sugestao.id,
+        f"agente sugerido={agente.nome} -> emergencia #{emergencia.id} ({modo})",
+    )
+    return ("sugestao", sugestao)
+
+
+def _confirmar_sugestao(sugestao: SugestaoDespacho, db: Session, ator: str):
+    """Efetiva o despacho de uma sugestão pendente (re-escolhe o melhor agente
+    no momento da confirmação, caso o sugerido tenha ficado indisponível)."""
+    if sugestao.status != "pendente":
+        return None
+    emergencia = db.query(Emergencia).filter(Emergencia.id == sugestao.id_emergencia).first()
+    if not emergencia or emergencia.status != "aberta":
+        db.query(SugestaoDespacho).filter(
+            SugestaoDespacho.id == sugestao.id, SugestaoDespacho.status == "pendente"
+        ).update({"status": "descartada"})
+        db.commit()
+        return None
+    # Claim atômico: só um processo consegue mudar pendente -> confirmada. Protege
+    # contra os GETs paralelos do painel (refresh dispara 4 fetches simultâneos)
+    # processarem a mesma sugestão vencida e despacharem em duplicidade.
+    afetadas = (
+        db.query(SugestaoDespacho)
+        .filter(SugestaoDespacho.id == sugestao.id, SugestaoDespacho.status == "pendente")
+        .update({"status": "confirmada"})
+    )
+    db.commit()
+    if afetadas != 1:
+        return None  # outro processo já confirmou esta sugestão
+
+    resultado = _executar_despacho(emergencia, db, briefing=sugestao.briefing)
+    if not resultado:
+        # Nenhum agente disponível neste instante — devolve a sugestão para
+        # 'pendente' para ser retentada no próximo ciclo (auto) ou pelo operador,
+        # em vez de consumir a sugestão e deixar a emergência presa em 'aberta'.
+        db.query(SugestaoDespacho).filter(
+            SugestaoDespacho.id == sugestao.id, SugestaoDespacho.status == "confirmada"
+        ).update({"status": "pendente"})
+        db.commit()
+        return None
+
+    registrar_auditoria(
+        db, ator, "confirmar_despacho", "sugestao", sugestao.id,
+        f"emergencia #{emergencia.id}",
+    )
+    return resultado
+
+
+def _processar_sugestoes_vencidas(db: Session):
+    """Confirma sugestões cujo delay expirou. Chamado (lazy) nas leituras que o
+    painel e os apps já fazem em polling — robusto a restart (estado no banco),
+    sem depender de threads/timers."""
+    try:
+        agora = datetime.utcnow()
+        vencidas = (
+            db.query(SugestaoDespacho)
+            .filter(
+                SugestaoDespacho.status == "pendente",
+                SugestaoDespacho.expira_em.isnot(None),
+                SugestaoDespacho.expira_em <= agora,
+            )
+            .all()
+        )
+        for s in vencidas:
+            _confirmar_sugestao(s, db, ator="sistema:auto_delay")
+    except Exception:
+        db.rollback()
 
 
 # ──────────────────────────── POST /despacho ──────────────────────
@@ -748,15 +921,25 @@ def criar_ocorrencia_manual(dados: OcorrenciaManualCreate, db: Session = Depends
         )
 
     despacho_info = None
+    sugestao_info = None
     try:
-        resultado_despacho = _executar_despacho(emergencia, db, briefing=triagem_info.get("briefing") or None)
+        modo, resultado = _despachar_ou_sugerir(emergencia, db, briefing=triagem_info.get("briefing") or None)
         db.refresh(emergencia)
-        if resultado_despacho:
-            _, melhor_agente, menor_distancia = resultado_despacho
+        if modo == "despacho" and resultado:
+            _, melhor_agente, menor_distancia = resultado
             despacho_info = {
                 "agente_nome": melhor_agente.nome,
                 "tipo_recurso": melhor_agente.tipo_recurso,
                 "distancia_km": round(menor_distancia, 2),
+            }
+        elif modo == "sugestao" and resultado:
+            ag = db.query(Agente).filter(Agente.id == resultado.id_agente_sugerido).first()
+            sugestao_info = {
+                "agente_nome": ag.nome if ag else None,
+                "tipo_recurso": ag.tipo_recurso if ag else None,
+                "distancia_km": resultado.distancia_km,
+                "expira_em": resultado.expira_em.isoformat() if resultado.expira_em else None,
+                "modo": "auto" if resultado.expira_em else "manual",
             }
     except Exception:
         pass
@@ -765,7 +948,7 @@ def criar_ocorrencia_manual(dados: OcorrenciaManualCreate, db: Session = Depends
         id=emergencia.id, lat=emergencia.lat, lon=emergencia.lon, tipo=emergencia.tipo,
         gravidade=emergencia.gravidade, status=emergencia.status, id_usuario=emergencia.id_usuario,
         created_at=emergencia.created_at, descricao=emergencia.descricao,
-        triagem=triagem_info, despacho=despacho_info,
+        triagem=triagem_info, despacho=despacho_info, sugestao=sugestao_info,
     )
 
 
@@ -990,6 +1173,117 @@ def triagem_ia(dados: TriagemRequest):
         latitude=dados.latitude,
         longitude=dados.longitude,
     )
+
+
+# ─────────────────── Painel de Soberania: endpoints ────────────────
+
+@app.get("/configuracao", response_model=ConfiguracaoResponse)
+def obter_configuracao(db: Session = Depends(get_db)):
+    """Configuração de autonomia do despacho (Painel de Soberania)."""
+    return _get_config(db)
+
+
+@app.put("/configuracao", response_model=ConfiguracaoResponse, dependencies=[Depends(verificar_api_key)])
+def atualizar_configuracao(dados: ConfiguracaoUpdate, db: Session = Depends(get_db),
+                           x_operador: str = Header(None)):
+    """Ajusta as alavancas de confiança da prefeitura. Campos omitidos ficam intactos."""
+    config = _get_config(db)
+
+    if dados.autonomia_total is not None:
+        config.autonomia_total = 1 if dados.autonomia_total else 0
+    if dados.delay_segundos is not None:
+        config.delay_segundos = max(0, min(3600, dados.delay_segundos))
+    if dados.gravidade_imediata_min is not None:
+        # 1..6 (6 = nenhuma gravidade dispara despacho imediato por criticidade)
+        config.gravidade_imediata_min = max(1, min(6, dados.gravidade_imediata_min))
+    if dados.recursos_confirmacao_manual is not None:
+        validos = [
+            r.strip().lower()
+            for r in dados.recursos_confirmacao_manual.split(",")
+            if r.strip().lower() in TIPOS_RECURSO_VALIDOS
+        ]
+        config.recursos_confirmacao_manual = ",".join(dict.fromkeys(validos))
+
+    config.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(config)
+
+    registrar_auditoria(
+        db, _ator_operador(x_operador), "atualizar_configuracao", "configuracao", config.id,
+        f"autonomia_total={config.autonomia_total} delay={config.delay_segundos}s "
+        f"grav_imediata>={config.gravidade_imediata_min} "
+        f"manual=[{config.recursos_confirmacao_manual}]",
+    )
+    return config
+
+
+@app.get("/sugestoes", response_model=list[SugestaoResponse])
+def listar_sugestoes(db: Session = Depends(get_db)):
+    """Sugestões de despacho pendentes de confirmação (para o painel do gestor)."""
+    _processar_sugestoes_vencidas(db)
+    pendentes = (
+        db.query(SugestaoDespacho)
+        .filter(SugestaoDespacho.status == "pendente")
+        .order_by(SugestaoDespacho.id.desc())
+        .all()
+    )
+    agora = datetime.utcnow()
+    out = []
+    for s in pendentes:
+        emergencia = db.query(Emergencia).filter(Emergencia.id == s.id_emergencia).first()
+        # Sugestão órfã (emergência já não está aberta) — ignora silenciosamente.
+        if not emergencia or emergencia.status != "aberta":
+            continue
+        ag = db.query(Agente).filter(Agente.id == s.id_agente_sugerido).first()
+        usuario = db.query(Usuario).filter(Usuario.id == emergencia.id_usuario).first()
+        segundos_restantes = None
+        if s.expira_em:
+            segundos_restantes = max(0, int((s.expira_em - agora).total_seconds()))
+        out.append(SugestaoResponse(
+            id=s.id, id_emergencia=s.id_emergencia, id_agente_sugerido=s.id_agente_sugerido,
+            agente_nome=ag.nome if ag else None,
+            tipo_recurso=ag.tipo_recurso if ag else None,
+            distancia_km=s.distancia_km, briefing=s.briefing,
+            expira_em=s.expira_em, segundos_restantes=segundos_restantes, status=s.status,
+            tipo=emergencia.tipo, gravidade=emergencia.gravidade, descricao=emergencia.descricao,
+            usuario_nome=usuario.nome if usuario else None,
+            lat=emergencia.lat, lon=emergencia.lon,
+        ))
+    return out
+
+
+@app.post("/sugestao/{sugestao_id}/confirmar", dependencies=[Depends(verificar_api_key)])
+def confirmar_sugestao_endpoint(sugestao_id: int, db: Session = Depends(get_db),
+                                x_operador: str = Header(None)):
+    """Operador confirma a sugestão — despacha a viatura agora."""
+    sugestao = db.query(SugestaoDespacho).filter(SugestaoDespacho.id == sugestao_id).first()
+    if not sugestao:
+        raise HTTPException(status_code=404, detail="Sugestão não encontrada")
+    if sugestao.status != "pendente":
+        raise HTTPException(status_code=409, detail=f"Sugestão já {sugestao.status}")
+    resultado = _confirmar_sugestao(sugestao, db, ator=_ator_operador(x_operador))
+    if not resultado:
+        raise HTTPException(status_code=409, detail="Não foi possível despachar (sem agente ou ocorrência encerrada)")
+    _, agente, distancia = resultado
+    return {"ok": True, "agente_nome": agente.nome, "distancia_km": round(distancia, 2)}
+
+
+@app.post("/sugestao/{sugestao_id}/descartar", dependencies=[Depends(verificar_api_key)])
+def descartar_sugestao_endpoint(sugestao_id: int, db: Session = Depends(get_db),
+                                x_operador: str = Header(None)):
+    """Operador descarta a sugestão — a ocorrência segue aberta (sem despacho)."""
+    sugestao = db.query(SugestaoDespacho).filter(SugestaoDespacho.id == sugestao_id).first()
+    if not sugestao:
+        raise HTTPException(status_code=404, detail="Sugestão não encontrada")
+    if sugestao.status != "pendente":
+        raise HTTPException(status_code=409, detail=f"Sugestão já {sugestao.status}")
+    sugestao.status = "descartada"
+    db.commit()
+    registrar_auditoria(
+        db, _ator_operador(x_operador), "descartar_despacho", "sugestao", sugestao.id,
+        f"emergencia #{sugestao.id_emergencia}",
+    )
+    return {"ok": True}
 
 
 # ──────────────────────────── Dashboard estático ──────────────────

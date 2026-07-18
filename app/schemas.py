@@ -195,6 +195,7 @@ class OcorrenciaManualResponse(BaseModel):
     descricao: Optional[str] = None
     triagem: Optional[dict] = None
     despacho: Optional[dict] = None
+    sugestao: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 
@@ -228,3 +229,40 @@ class TriagemResponse(BaseModel):
     tipo: str
     latitude: float
     longitude: float
+
+
+# --- Painel de Soberania (configuracao de despacho) ---
+class ConfiguracaoResponse(BaseModel):
+    autonomia_total: int
+    delay_segundos: int
+    gravidade_imediata_min: int
+    recursos_confirmacao_manual: str
+
+    model_config = {"from_attributes": True}
+
+
+class ConfiguracaoUpdate(BaseModel):
+    autonomia_total: Optional[int] = None
+    delay_segundos: Optional[int] = None
+    gravidade_imediata_min: Optional[int] = None
+    recursos_confirmacao_manual: Optional[str] = None
+
+
+class SugestaoResponse(BaseModel):
+    id: int
+    id_emergencia: int
+    id_agente_sugerido: int
+    agente_nome: Optional[str] = None
+    tipo_recurso: Optional[str] = None
+    distancia_km: Optional[float] = None
+    briefing: Optional[str] = None
+    expira_em: Optional[datetime] = None
+    segundos_restantes: Optional[int] = None
+    status: str
+    # dados da emergência para o card do painel
+    tipo: Optional[str] = None
+    gravidade: Optional[int] = None
+    descricao: Optional[str] = None
+    usuario_nome: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
